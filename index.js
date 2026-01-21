@@ -3,20 +3,23 @@ import fetch from "node-fetch";
 
 const app = express();
 app.use(express.json());
+
+// CORS (para funcionar no HTML local)
 app.use((req, res, next) => {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
   res.setHeader("Access-Control-Allow-Methods", "POST, GET, OPTIONS");
   next();
 });
-app.options("*", (req, res) => {
-  res.sendStatus(200);
-});
 
+app.options("*", (req, res) => res.sendStatus(200));
+
+// Rota raiz (teste)
 app.get("/", (req, res) => {
   res.send("🔮 Oráculo Financeiro ativo e observando seus gastos...");
 });
- 
+
+// Rota do Oráculo
 app.post("/oraculo", async (req, res) => {
   try {
     const userMessage = req.body.message;
@@ -36,7 +39,8 @@ app.post("/oraculo", async (req, res) => {
         input: [
           {
             role: "system",
-            content: "Você é o Oráculo Financeiro. Ajude a registrar despesas, receitas e cartões de forma clara e objetiva."
+            content:
+              "Você é o Oráculo Financeiro. Ajude a analisar despesas, receitas e cartões de forma clara e objetiva."
           },
           {
             role: "user",
@@ -46,18 +50,21 @@ app.post("/oraculo", async (req, res) => {
       })
     });
 
-const data = await response.json();
+    const data = await response.json();
 
-const reply = data.output_text || "Sem resposta do Oráculo";
+    const reply =
+      data.output?.[0]?.content?.[0]?.text ||
+      "⚠️ Oráculo não conseguiu responder";
 
-res.json({ reply });
+    res.json({ reply });
 
   } catch (err) {
+    console.error(err);
     res.status(500).json({ error: "Erro no Oráculo" });
   }
 });
 
 const PORT = process.env.PORT || 8080;
 app.listen(PORT, () => {
-  console.log("Oráculo ativo na porta " + PORT);
+  console.log("🔮 Oráculo ativo na porta " + PORT);
 });
