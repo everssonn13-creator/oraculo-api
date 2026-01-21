@@ -3,7 +3,10 @@ import fetch from "node-fetch";
 
 const app = express();
 app.use(express.json());
-
+app.get("/", (req, res) => {
+  res.send("🔮 Oráculo Financeiro ativo e observando seus gastos...");
+});
+ 
 app.post("/oraculo", async (req, res) => {
   try {
     const userMessage = req.body.message;
@@ -33,15 +36,19 @@ app.post("/oraculo", async (req, res) => {
       })
     });
 
-    const data = await response.json();
-    res.json({ reply: data.output_text });
+const data = await response.json();
+
+const reply =
+  data.output?.[0]?.content?.[0]?.text || "Sem resposta do Oráculo";
+
+res.json({ reply });
 
   } catch (err) {
     res.status(500).json({ error: "Erro no Oráculo" });
   }
 });
 
-const PORT = process.env.PORT || 3000;
+const PORT = process.env.PORT || 8080;
 app.listen(PORT, () => {
   console.log("Oráculo ativo na porta " + PORT);
 });
