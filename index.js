@@ -48,8 +48,7 @@ app.post("/oraculo", async (req, res) => {
 
 const data = await response.json();
 
-const reply =
-  data.output?.[0]?.content?.[0]?.text || "Sem resposta do Oráculo";
+const reply = data.output_text || "Sem resposta do Oráculo";
 
 res.json({ reply });
 
