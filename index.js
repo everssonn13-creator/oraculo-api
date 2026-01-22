@@ -81,9 +81,7 @@ Regras:
 {
   role: "user",
   content: userMessage
-}
-
-          },
+ },
           {
             role: "user",
             content: userMessage
