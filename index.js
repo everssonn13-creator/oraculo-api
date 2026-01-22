@@ -2,16 +2,20 @@ import express from "express";
 import fetch from "node-fetch";
 import { createClient } from "@supabase/supabase-js";
 
+const app = express();
+app.use(express.json());
+
+// =====================
+// SUPABASE
+// =====================
 const supabase = createClient(
   process.env.SUPABASE_URL,
   process.env.SUPABASE_SERVICE_ROLE_KEY
 );
 
-
-const app = express();
-app.use(express.json());
-
-// CORS (para funcionar no HTML local)
+// =====================
+// CORS
+// =====================
 app.use((req, res, next) => {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
@@ -21,38 +25,44 @@ app.use((req, res, next) => {
 
 app.options("*", (req, res) => res.sendStatus(200));
 
-// Rota raiz (teste)
+// =====================
+// ROOT
+// =====================
 app.get("/", (req, res) => {
   res.send("🔮 Oráculo Financeiro ativo e observando seus gastos...");
 });
 
-// Rota do Oráculo
+// =====================
+// ORÁCULO
+// =====================
 app.post("/oraculo", async (req, res) => {
   try {
     const userMessage = req.body.message;
     console.log("📩 Mensagem recebida:", userMessage);
 
     if (!userMessage) {
-      return res.status(400).json({ error: "Mensagem não enviada" });
+      return res.status(400).json({ reply: "Mensagem vazia." });
     }
 
     const response = await fetch("https://api.openai.com/v1/responses", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        "Authorization": `Bearer ${process.env.OPENAI_API_KEY}`
+        Authorization: `Bearer ${process.env.OPENAI_API_KEY}`
       },
       body: JSON.stringify({
         model: "gpt-5-mini",
         input: [
-        {
-  role: "system",
-  content: `Você é o Oráculo Financeiro 🔮.
+          {
+            role: "system",
+            content: `
+Você é o Oráculo Financeiro 🔮.
 
-Sua função é interpretar mensagens financeiras dos usuários e decidir UMA ação do sistema.
+Você conversa de forma natural, amigável e humana.
+Você NÃO fala como robô.
+Você pode usar emojis com moderação.
 
-Você NUNCA salva dados diretamente.
-Você SEMPRE responde em JSON válido.
+Sua função é interpretar mensagens financeiras e decidir UMA ação.
 
 Ações possíveis:
 - REGISTRAR_DESPESA
@@ -60,9 +70,16 @@ Ações possíveis:
 - PEDIR_CONFIRMACAO
 - RESPONDER
 
-Formato da resposta (JSON):
+Regras:
+- Se for conversa normal → RESPONDER
+- Se faltar dados → PEDIR_CONFIRMACAO
+- Nunca invente valores
+- Nunca julgue o usuário
+
+Formato JSON (somente quando for ação):
+
 {
-  "acao": "",
+  "acao": "RESPONDER | REGISTRAR_DESPESA | PEDIR_CONFIRMACAO",
   "dados": {
     "descricao": "",
     "valor": 0,
@@ -71,17 +88,8 @@ Formato da resposta (JSON):
   },
   "mensagem_usuario": ""
 }
-
-Regras:
-- Nunca invente valores
-- Se faltar qualquer dado, use PEDIR_CONFIRMACAO
-- Seja claro, prático e amigável
-- Emojis discretos são permitidos`
-},
-{
-  role: "user",
-  content: userMessage
- },
+`
+          },
           {
             role: "user",
             content: userMessage
@@ -90,112 +98,98 @@ Regras:
       })
     });
 
-const data = await response.json();
+    const data = await response.json();
 
-let reply = "⚠️ Oráculo não conseguiu responder";
+    let replyText = "";
 
-try {
-  if (Array.isArray(data.output)) {
-    for (const item of data.output) {
-      if (Array.isArray(item.content)) {
-        const textBlock = item.content.find(c => c.type === "output_text");
-        if (textBlock?.text) {
-          reply = textBlock.text;
-          break;
+    if (Array.isArray(data.output)) {
+      for (const item of data.output) {
+        if (Array.isArray(item.content)) {
+          const block = item.content.find(c => c.type === "output_text");
+          if (block?.text) {
+            replyText = block.text;
+            break;
+          }
         }
       }
     }
-  }
-} catch (e) {
-  console.error("Erro ao extrair texto:", e);
-}
-let acaoSistema;
 
-try {
-  acaoSistema = JSON.parse(reply);
-} catch (e) {
-  // Resposta normal do Oráculo (somente texto)
-  return res.json({
-    reply
-  });
-}
-if (acaoSistema.acao === "REGISTRAR_DESPESA") {
-  const { descricao, valor, categoria, data } = acaoSistema.dados;
+    if (!replyText) {
+      return res.json({ reply: "🤔 O Oráculo está refletindo..." });
+    }
 
-  if (!descricao || !valor || !categoria || !data) {
+    console.log("🔮 Resposta do Oráculo:", replyText);
+
+    // =====================
+    // TENTA INTERPRETAR JSON
+    // =====================
+    let acaoSistema = null;
+
+    try {
+      acaoSistema = JSON.parse(replyText);
+    } catch {
+      // Conversa normal
+      return res.json({ reply: replyText });
+    }
+
+    // =====================
+    // REGISTRAR DESPESA
+    // =====================
+    if (acaoSistema.acao === "REGISTRAR_DESPESA") {
+      const { descricao, valor, categoria, data } = acaoSistema.dados;
+
+      if (!descricao || !valor || !categoria || !data) {
+        return res.json({
+          reply: "⚠️ Falta alguma informação para registrar a despesa."
+        });
+      }
+
+      const { error } = await supabase
+        .from("despesas")
+        .insert([
+          {
+            description: descricao,
+            amount: valor,
+            category: categoria,
+            expense_date: data,
+            expense_type: "manual",
+            status: "registrada"
+          }
+        ]);
+
+      if (error) {
+        console.error("Erro Supabase:", error);
+        return res.json({
+          reply: "❌ Tive um problema ao registrar essa despesa."
+        });
+      }
+
+      return res.json({
+        reply:
+          acaoSistema.mensagem_usuario ||
+          "✅ Despesa registrada com sucesso. Quer registrar outra?"
+      });
+    }
+
+    // =====================
+    // QUALQUER OUTRA AÇÃO
+    // =====================
     return res.json({
-      reply: "⚠️ Falta alguma informação para registrar a despesa."
+      reply:
+        acaoSistema.mensagem_usuario ||
+        "🔮 Estou aqui. Como posso te ajudar?"
     });
-  }
-
-  const { error } = await supabase
-    .from("despesas")
-    .insert([{
-      description: descricao,
-      amount: valor,
-      category: categoria,
-      expense_date: data,
-      expense_type: "manual",
-      status: "registrada"
-    }]);
-
-  if (error) {
-    console.error("Erro Supabase:", error);
-    return res.json({
-      reply: "❌ O Oráculo tentou registrar, mas algo deu errado."
-    });
-  }
-
-  return res.json({
-    reply: acaoSistema.mensagem_usuario || "✅ Despesa registrada com sucesso."
-  });
-}
-
-if (acaoSistema.acao === "REGISTRAR_DESPESA") {
-
-  const { descricao, valor, categoria, data } = acaoSistema.dados;
-
-  if (!descricao || !valor || !categoria || !data) {
-    return res.json({
-      reply: "⚠️ Falta alguma informação para registrar a despesa."
-    });
-  }
-
-  const { error } = await supabase
-    .from("despesas")
-    .insert([{
-      description: descricao,
-      amount: valor,
-      category: categoria,
-      expense_date: data,
-      expense_type: "manual",
-      status: "registrada"
-    }]);
-
-  if (error) {
-    console.error("Erro Supabase:", error);
-    return res.json({
-      reply: "❌ O Oráculo tentou registrar, mas algo deu errado."
-    });
-  }
-
-  return res.json({
-    reply: acaoSistema.mensagem_usuario || "✅ Despesa registrada com sucesso."
-  });
-}
-
-// 👇 SÓ cai aqui se NÃO for REGISTRAR_DESPESA
-res.json({ reply });
-
-
-
   } catch (err) {
     console.error(err);
-    res.status(500).json({ error: "Erro no Oráculo" });
+    res.status(500).json({ reply: "Erro interno do Oráculo." });
   }
 });
 
+// =====================
+// SERVER
+// =====================
 const PORT = process.env.PORT || 8080;
 app.listen(PORT, () => {
   console.log("🔮 Oráculo ativo na porta " + PORT);
 });
+
