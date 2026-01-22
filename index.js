@@ -52,23 +52,25 @@ app.post("/oraculo", async (req, res) => {
 
 const data = await response.json();
 
-// DEBUG
-console.log("Resposta bruta da OpenAI:", JSON.stringify(data, null, 2));
-
 let reply = "⚠️ Oráculo não conseguiu responder";
 
-if (data.output && data.output[0] && data.output[0].content) {
-  const textBlock = data.output[0].content.find(
-    c => c.type === "output_text"
-  );
-
-  if (textBlock?.text) {
-    reply = textBlock.text;
+try {
+  if (Array.isArray(data.output)) {
+    for (const item of data.output) {
+      if (Array.isArray(item.content)) {
+        const textBlock = item.content.find(c => c.type === "output_text");
+        if (textBlock?.text) {
+          reply = textBlock.text;
+          break;
+        }
+      }
+    }
   }
+} catch (e) {
+  console.error("Erro ao extrair texto:", e);
 }
 
 res.json({ reply });
-
 
 
   } catch (err) {
