@@ -184,7 +184,7 @@ REGRAS:
           amount: valor,
           category: categoria,
           expense_date: data,
-          expense_type: "manual",
+          expense_type: "Variável",
           status: "registrada",
         },
       ]);
