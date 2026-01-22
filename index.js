@@ -109,15 +109,48 @@ try {
 } catch (e) {
   console.error("Erro ao extrair texto:", e);
 }
-console.log("📤 Resposta enviada:", reply);
 let acaoSistema;
 
 try {
   acaoSistema = JSON.parse(reply);
 } catch (e) {
-  // Se não for JSON, apenas responde normalmente
-  return res.json({ reply });
+  // Resposta normal do Oráculo (somente texto)
+  return res.json({
+    reply
+  });
 }
+if (acaoSistema.acao === "REGISTRAR_DESPESA") {
+  const { descricao, valor, categoria, data } = acaoSistema.dados;
+
+  if (!descricao || !valor || !categoria || !data) {
+    return res.json({
+      reply: "⚠️ Falta alguma informação para registrar a despesa."
+    });
+  }
+
+  const { error } = await supabase
+    .from("despesas")
+    .insert([{
+      description: descricao,
+      amount: valor,
+      category: categoria,
+      expense_date: data,
+      expense_type: "manual",
+      status: "registrada"
+    }]);
+
+  if (error) {
+    console.error("Erro Supabase:", error);
+    return res.json({
+      reply: "❌ O Oráculo tentou registrar, mas algo deu errado."
+    });
+  }
+
+  return res.json({
+    reply: acaoSistema.mensagem_usuario || "✅ Despesa registrada com sucesso."
+  });
+}
+
 if (acaoSistema.acao === "REGISTRAR_DESPESA") {
 
   const { descricao, valor, categoria, data } = acaoSistema.dados;
