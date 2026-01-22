@@ -53,10 +53,8 @@ app.post("/oraculo", async (req, res) => {
     const data = await response.json();
 // DEBUG: ver a resposta real da OpenAI no Railway
 console.log("Resposta bruta da OpenAI:", JSON.stringify(data, null, 2));
-
 let reply = "⚠️ Oráculo não conseguiu responder";
 
-// formato correto da API Responses
 if (data.output_text) {
   reply = data.output_text;
 }
