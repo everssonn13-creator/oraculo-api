@@ -58,7 +58,7 @@ let reply = "⚠️ Oráculo não conseguiu responder";
 if (data.output_text) {
   reply = data.output_text;
 }
-
+    
 res.json({ reply });
 
 
