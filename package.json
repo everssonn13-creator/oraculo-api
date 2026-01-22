@@ -6,8 +6,9 @@
   "scripts": {
     "start": "node index.js"
   },
-  "dependencies": {
-    "express": "^4.19.2",
-    "node-fetch": "^3.3.2"
+ "dependencies": {
+  "express": "^4.19.2",
+  "node-fetch": "^3.3.2",
+  "@supabase/supabase-js": "^2.39.0"
   }
 }
