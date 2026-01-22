@@ -50,16 +50,25 @@ app.post("/oraculo", async (req, res) => {
       })
     });
 
-    const data = await response.json();
-// DEBUG: ver a resposta real da OpenAI no Railway
+const data = await response.json();
+
+// DEBUG
 console.log("Resposta bruta da OpenAI:", JSON.stringify(data, null, 2));
+
 let reply = "⚠️ Oráculo não conseguiu responder";
 
-if (data.output_text) {
-  reply = data.output_text;
+if (data.output && data.output[0] && data.output[0].content) {
+  const textBlock = data.output[0].content.find(
+    c => c.type === "output_text"
+  );
+
+  if (textBlock?.text) {
+    reply = textBlock.text;
+  }
 }
-    
+
 res.json({ reply });
+
 
 
   } catch (err) {
