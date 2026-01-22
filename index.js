@@ -23,6 +23,7 @@ app.get("/", (req, res) => {
 app.post("/oraculo", async (req, res) => {
   try {
     const userMessage = req.body.message;
+    console.log("📩 Mensagem recebida:", userMessage);
 
     if (!userMessage) {
       return res.status(400).json({ error: "Mensagem não enviada" });
@@ -69,6 +70,7 @@ try {
 } catch (e) {
   console.error("Erro ao extrair texto:", e);
 }
+console.log("📤 Resposta enviada:", reply);
 
 res.json({ reply });
 
