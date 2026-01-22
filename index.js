@@ -2,20 +2,21 @@ import express from "express";
 import fetch from "node-fetch";
 import { createClient } from "@supabase/supabase-js";
 
-const app = express();
-app.use(express.json());
-
-// =====================
-// SUPABASE
-// =====================
+/* ===============================
+   SUPABASE
+================================ */
 const supabase = createClient(
   process.env.SUPABASE_URL,
   process.env.SUPABASE_SERVICE_ROLE_KEY
 );
 
-// =====================
+/* ===============================
+   APP
+================================ */
+const app = express();
+app.use(express.json());
+
 // CORS
-// =====================
 app.use((req, res, next) => {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
@@ -23,32 +24,33 @@ app.use((req, res, next) => {
   next();
 });
 
-app.options("*", (req, res) => res.sendStatus(200));
+app.options("*", (_, res) => res.sendStatus(200));
 
-// =====================
-// ROOT
-// =====================
-app.get("/", (req, res) => {
+// Health check
+app.get("/", (_, res) => {
   res.send("🔮 Oráculo Financeiro ativo e observando seus gastos...");
 });
 
-// =====================
-// ORÁCULO
-// =====================
+/* ===============================
+   ROTA PRINCIPAL
+================================ */
 app.post("/oraculo", async (req, res) => {
   try {
     const userMessage = req.body.message;
     console.log("📩 Mensagem recebida:", userMessage);
 
     if (!userMessage) {
-      return res.status(400).json({ reply: "Mensagem vazia." });
+      return res.json({ reply: "⚠️ Não recebi nenhuma mensagem." });
     }
 
+    /* ===============================
+       CHAMADA OPENAI
+    ================================ */
     const response = await fetch("https://api.openai.com/v1/responses", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${process.env.OPENAI_API_KEY}`
+        Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
       },
       body: JSON.stringify({
         model: "gpt-5-mini",
@@ -56,30 +58,26 @@ app.post("/oraculo", async (req, res) => {
           {
             role: "system",
             content: `
-Você é o Oráculo Financeiro 🔮.
+Você é o Oráculo Financeiro 🔮 — um especialista em finanças pessoais, organizado, didático e humano.
 
-Você conversa de forma natural, amigável e humana.
-Você NÃO fala como robô.
-Você pode usar emojis com moderação.
+OBJETIVO:
+Conversar naturalmente com o usuário sobre finanças pessoais e decidir UMA ação do sistema quando necessário.
 
-Sua função é interpretar mensagens financeiras e decidir UMA ação.
+COMPORTAMENTO:
+- Converse como um humano, de forma amigável e clara
+- Use emojis com moderação 🙂
+- Pode explicar conceitos, tirar dúvidas e orientar
+- Não seja robótico
 
-Ações possíveis:
+AÇÕES POSSÍVEIS:
 - REGISTRAR_DESPESA
 - REGISTRAR_RECEITA
 - PEDIR_CONFIRMACAO
 - RESPONDER
 
-Regras:
-- Se for conversa normal → RESPONDER
-- Se faltar dados → PEDIR_CONFIRMACAO
-- Nunca invente valores
-- Nunca julgue o usuário
-
-Formato JSON (somente quando for ação):
-
+FORMATO OBRIGATÓRIO DA RESPOSTA (JSON VÁLIDO):
 {
-  "acao": "RESPONDER | REGISTRAR_DESPESA | PEDIR_CONFIRMACAO",
+  "acao": "RESPONDER | REGISTRAR_DESPESA | REGISTRAR_RECEITA | PEDIR_CONFIRMACAO",
   "dados": {
     "descricao": "",
     "valor": 0,
@@ -88,108 +86,143 @@ Formato JSON (somente quando for ação):
   },
   "mensagem_usuario": ""
 }
+
+REGRAS:
+- Nunca invente valores
+- Se faltar qualquer dado para registrar algo, use PEDIR_CONFIRMACAO
+- Se for apenas conversa, explicação ou dúvida, use RESPONDER
+- Nunca salve dados diretamente
+- Sempre responda em JSON válido
 `
           },
           {
             role: "user",
-            content: userMessage
-          }
-        ]
-      })
+            content: userMessage,
+          },
+        ],
+      }),
     });
 
     const data = await response.json();
 
-    let replyText = "";
+    /* ===============================
+       EXTRAIR TEXTO DA OPENAI
+    ================================ */
+    let rawReply = null;
 
     if (Array.isArray(data.output)) {
       for (const item of data.output) {
         if (Array.isArray(item.content)) {
-          const block = item.content.find(c => c.type === "output_text");
-          if (block?.text) {
-            replyText = block.text;
+          const textBlock = item.content.find(
+            (c) => c.type === "output_text"
+          );
+          if (textBlock?.text) {
+            rawReply = textBlock.text;
             break;
           }
         }
       }
     }
 
-    if (!replyText) {
-      return res.json({ reply: "🤔 O Oráculo está refletindo..." });
+    if (!rawReply) {
+      return res.json({
+        reply: "⚠️ O Oráculo ficou pensativo demais… tente novamente.",
+      });
     }
 
-    console.log("🔮 Resposta do Oráculo:", replyText);
+    console.log("🧠 Resposta bruta da IA:", rawReply);
 
-    // =====================
-    // TENTA INTERPRETAR JSON
-    // =====================
-    let acaoSistema = null;
-
+    /* ===============================
+       TENTAR PARSE DO JSON
+    ================================ */
+    let acaoSistema;
     try {
-      acaoSistema = JSON.parse(replyText);
+      acaoSistema = JSON.parse(rawReply);
     } catch {
-      // Conversa normal
-      return res.json({ reply: replyText });
+      // Se não for JSON (fallback de segurança)
+      return res.json({ reply: rawReply });
     }
 
-    // =====================
-    // REGISTRAR DESPESA
-    // =====================
+    /* ===============================
+       AÇÃO: RESPONDER (CONVERSA NORMAL)
+    ================================ */
+    if (acaoSistema.acao === "RESPONDER") {
+      return res.json({
+        reply:
+          acaoSistema.mensagem_usuario ||
+          "🔮 Estou aqui. Como posso ajudar com suas finanças?",
+      });
+    }
+
+    /* ===============================
+       AÇÃO: PEDIR CONFIRMAÇÃO
+    ================================ */
+    if (acaoSistema.acao === "PEDIR_CONFIRMACAO") {
+      return res.json({
+        reply:
+          acaoSistema.mensagem_usuario ||
+          "⚠️ Preciso de mais algumas informações para continuar.",
+      });
+    }
+
+    /* ===============================
+       AÇÃO: REGISTRAR DESPESA
+    ================================ */
     if (acaoSistema.acao === "REGISTRAR_DESPESA") {
       const { descricao, valor, categoria, data } = acaoSistema.dados;
 
       if (!descricao || !valor || !categoria || !data) {
         return res.json({
-          reply: "⚠️ Falta alguma informação para registrar a despesa."
+          reply:
+            "⚠️ Para registrar a despesa, preciso de descrição, valor, categoria e data.",
         });
       }
 
-      const { error } = await supabase
-        .from("despesas")
-        .insert([
-          {
-            description: descricao,
-            amount: valor,
-            category: categoria,
-            expense_date: data,
-            expense_type: "manual",
-            status: "registrada"
-          }
-        ]);
+      const { error } = await supabase.from("despesas").insert([
+        {
+          description: descricao,
+          amount: valor,
+          category: categoria,
+          expense_date: data,
+          expense_type: "manual",
+          status: "registrada",
+        },
+      ]);
 
       if (error) {
-        console.error("Erro Supabase:", error);
+        console.error("❌ Erro Supabase:", error);
         return res.json({
-          reply: "❌ Tive um problema ao registrar essa despesa."
+          reply:
+            "❌ Tentei registrar a despesa, mas algo deu errado. Vamos tentar novamente?",
         });
       }
 
       return res.json({
         reply:
           acaoSistema.mensagem_usuario ||
-          "✅ Despesa registrada com sucesso. Quer registrar outra?"
+          "✅ Despesa registrada com sucesso! Quer registrar outra ou analisar seus gastos?",
       });
     }
 
-    // =====================
-    // QUALQUER OUTRA AÇÃO
-    // =====================
+    /* ===============================
+       FALLBACK
+    ================================ */
     return res.json({
-      reply:
-        acaoSistema.mensagem_usuario ||
-        "🔮 Estou aqui. Como posso te ajudar?"
+      reply: "🤔 Não entendi completamente. Pode reformular?",
     });
   } catch (err) {
-    console.error(err);
-    res.status(500).json({ reply: "Erro interno do Oráculo." });
+    console.error("🔥 Erro geral:", err);
+    return res.status(500).json({
+      reply:
+        "⚠️ O Oráculo encontrou uma turbulência astral. Tente novamente em instantes.",
+    });
   }
 });
 
-// =====================
-// SERVER
-// =====================
+/* ===============================
+   START SERVER
+================================ */
 const PORT = process.env.PORT || 8080;
 app.listen(PORT, () => {
   console.log("🔮 Oráculo ativo na porta " + PORT);
 });
-
