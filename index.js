@@ -32,24 +32,76 @@ app.get("/", (_, res) => {
 });
 
 /* ===============================
+   MEMÓRIA TEMPORÁRIA (V1)
+================================ */
+const pendingActions = {}; 
+// Estrutura:
+// pendingActions[user_id] = {
+//   tipo: "DESPESA",
+//   descricao,
+//   valor,
+//   data
+// }
+
+/* ===============================
    ROTA PRINCIPAL
 ================================ */
 app.post("/oraculo", async (req, res) => {
   try {
-    const { message: userMessage, user_id: userId } = req.body;
+    const { message, user_id } = req.body;
 
-    console.log("📩 Mensagem recebida:", userMessage);
-    console.log("👤 User ID:", userId);
+    console.log("📩 Mensagem recebida:", message);
+    console.log("👤 User ID:", user_id);
 
-    if (!userMessage) {
+    if (!message) {
       return res.json({ reply: "⚠️ Não recebi nenhuma mensagem." });
     }
 
-    if (!userId) {
+    if (!user_id) {
       return res.json({
-        reply:
-          "⚠️ Não consegui identificar seu usuário. Atualize a página e tente novamente.",
+        reply: "⚠️ Não consegui identificar seu usuário. Atualize a página e tente novamente.",
       });
+    }
+
+    /* ===============================
+       CASO: EXISTE AÇÃO PENDENTE
+    ================================ */
+    if (pendingActions[user_id]) {
+      const pending = pendingActions[user_id];
+
+      // Tentativa simples: se usuário respondeu só a categoria
+      if (!pending.categoria) {
+        pending.categoria = message.trim();
+
+        // Agora temos tudo para registrar
+        const { descricao, valor, data, categoria } = pending;
+
+        const { error } = await supabase.from("despesas").insert([
+          {
+            user_id,
+            description: descricao,
+            amount: valor,
+            category: categoria,
+            expense_date: data,
+            expense_type: "Variável",
+            status: "pendente",
+          },
+        ]);
+
+        // Limpa memória
+        delete pendingActions[user_id];
+
+        if (error) {
+          console.error("❌ Erro Supabase:", error);
+          return res.json({
+            reply: "❌ Tentei registrar a despesa, mas algo deu errado.",
+          });
+        }
+
+        return res.json({
+          reply: `✅ Despesa registrada em **${categoria}** com sucesso! Quer registrar outra ou analisar seus gastos?`,
+        });
+      }
     }
 
     /* ===============================
@@ -67,18 +119,17 @@ app.post("/oraculo", async (req, res) => {
           {
             role: "system",
             content: `
-Você é o Oráculo Financeiro 🔮
+Você é o Oráculo Financeiro 🔮 — especialista em finanças pessoais.
 
-Sua função é conversar naturalmente sobre finanças pessoais
-e decidir UMA ação quando necessário.
+OBJETIVO:
+Conversar naturalmente e decidir UMA ação do sistema.
 
-AÇÕES POSSÍVEIS:
+AÇÕES:
 - REGISTRAR_DESPESA
-- REGISTRAR_RECEITA
 - PEDIR_CONFIRMACAO
 - RESPONDER
 
-FORMATO OBRIGATÓRIO (JSON VÁLIDO):
+FORMATO OBRIGATÓRIO (JSON):
 {
   "acao": "",
   "dados": {
@@ -91,143 +142,91 @@ FORMATO OBRIGATÓRIO (JSON VÁLIDO):
 }
 
 REGRAS:
-- Nunca invente valores
-- Se faltar qualquer dado, use PEDIR_CONFIRMACAO
-- Se for conversa normal, use RESPONDER
-- Nunca responda fora do JSON
+- Nunca invente dados
+- Se faltar algo, use PEDIR_CONFIRMACAO
+- Sempre responda JSON válido
 `
           },
-          {
-            role: "user",
-            content: userMessage,
-          },
+          { role: "user", content: message },
         ],
       }),
     });
 
     const data = await response.json();
 
-    /* ===============================
-       EXTRAIR TEXTO DA OPENAI
-    ================================ */
     let rawReply = null;
-
     if (Array.isArray(data.output)) {
       for (const item of data.output) {
-        if (Array.isArray(item.content)) {
-          const textBlock = item.content.find(
-            (c) => c.type === "output_text"
-          );
-          if (textBlock?.text) {
-            rawReply = textBlock.text;
-            break;
-          }
+        const textBlock = item.content?.find(c => c.type === "output_text");
+        if (textBlock?.text) {
+          rawReply = textBlock.text;
+          break;
         }
       }
     }
 
     if (!rawReply) {
-      return res.json({
-        reply: "⚠️ O Oráculo ficou pensativo demais… tente novamente.",
-      });
+      return res.json({ reply: "⚠️ O Oráculo ficou pensativo demais…" });
     }
 
-    console.log("🧠 Resposta bruta da IA:", rawReply);
+    const acaoSistema = JSON.parse(rawReply);
 
     /* ===============================
-       PARSE DO JSON
-    ================================ */
-    let acaoSistema;
-    try {
-      acaoSistema = JSON.parse(rawReply);
-    } catch {
-      return res.json({ reply: rawReply });
-    }
-
-    /* ===============================
-       RESPONDER (CONVERSA)
+       RESPONDER NORMAL
     ================================ */
     if (acaoSistema.acao === "RESPONDER") {
-      return res.json({
-        reply:
-          acaoSistema.mensagem_usuario ||
-          "🔮 Estou aqui. Como posso ajudar?",
-      });
+      return res.json({ reply: acaoSistema.mensagem_usuario });
     }
 
     /* ===============================
        PEDIR CONFIRMAÇÃO
     ================================ */
     if (acaoSistema.acao === "PEDIR_CONFIRMACAO") {
-      return res.json({
-        reply:
-          acaoSistema.mensagem_usuario ||
-          "⚠️ Preciso de mais informações para continuar.",
-      });
+      const { descricao, valor, data } = acaoSistema.dados;
+
+      // Guarda contexto
+      pendingActions[user_id] = {
+        tipo: "DESPESA",
+        descricao,
+        valor,
+        data,
+        categoria: null,
+      };
+
+      return res.json({ reply: acaoSistema.mensagem_usuario });
     }
 
     /* ===============================
-       REGISTRAR DESPESA
+       REGISTRAR DIRETO (caso raro)
     ================================ */
     if (acaoSistema.acao === "REGISTRAR_DESPESA") {
       const { descricao, valor, categoria, data } = acaoSistema.dados;
 
-      if (!descricao || !valor || !categoria) {
-        return res.json({
-          reply:
-            "⚠️ Preciso da descrição, valor e categoria para registrar a despesa.",
-        });
-      }
-
-      // Normalização de data (TEXT no banco)
-      const rawDate = data || new Date().toISOString();
-      const expenseDate = rawDate.split("T")[0]; // YYYY-MM-DD
-
-      const dateObj = new Date(expenseDate);
-      const statement_month = dateObj.getMonth() + 1;
-      const statement_year = dateObj.getFullYear();
-
       const { error } = await supabase.from("despesas").insert([
         {
-          user_id: userId,
+          user_id,
           description: descricao,
-          amount: Number(valor),
+          amount: valor,
           category: categoria,
-          expense_date: expenseDate,
-          statement_month,
-          statement_year,
+          expense_date: data,
           expense_type: "Variável",
           status: "pendente",
         },
       ]);
 
       if (error) {
-        console.error("❌ Erro Supabase:", error);
-        return res.json({
-          reply:
-            "❌ Tive um problema ao registrar a despesa. Vamos tentar novamente?",
-        });
+        return res.json({ reply: "❌ Erro ao registrar despesa." });
       }
 
-      return res.json({
-        reply:
-          acaoSistema.mensagem_usuario ||
-          "✅ Despesa registrada! Quer ver um resumo do mês ou registrar outra?",
-        action: "REFRESH_DESPESAS",
-      });
+      return res.json({ reply: "✅ Despesa registrada com sucesso!" });
     }
 
-    /* ===============================
-       FALLBACK
-    ================================ */
-    return res.json({
-      reply: "🤔 Não entendi completamente. Pode reformular?",
-    });
+    return res.json({ reply: "🤔 Não entendi. Pode reformular?" });
+
   } catch (err) {
     console.error("🔥 Erro geral:", err);
     return res.status(500).json({
-      reply:
-        "⚠️ O Oráculo encontrou uma instabilidade. Tente novamente.",
+      reply: "⚠️ O Oráculo encontrou uma turbulência astral.",
     });
   }
 });
