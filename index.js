@@ -36,11 +36,20 @@ app.get("/", (_, res) => {
 ================================ */
 app.post("/oraculo", async (req, res) => {
   try {
-    const userMessage = req.body.message;
+    const { message: userMessage, user_id: userId } = req.body;
+
     console.log("📩 Mensagem recebida:", userMessage);
+    console.log("👤 User ID:", userId);
 
     if (!userMessage) {
       return res.json({ reply: "⚠️ Não recebi nenhuma mensagem." });
+    }
+
+    if (!userId) {
+      return res.json({
+        reply:
+          "⚠️ Não consegui identificar seu usuário. Atualize a página e tente novamente.",
+      });
     }
 
     /* ===============================
@@ -58,16 +67,10 @@ app.post("/oraculo", async (req, res) => {
           {
             role: "system",
             content: `
-Você é o Oráculo Financeiro 🔮 — um especialista em finanças pessoais, organizado, didático e humano.
+Você é o Oráculo Financeiro 🔮
 
-OBJETIVO:
-Conversar naturalmente com o usuário sobre finanças pessoais e decidir UMA ação do sistema quando necessário.
-
-COMPORTAMENTO:
-- Converse como um humano, de forma amigável e clara
-- Use emojis com moderação 🙂
-- Pode explicar conceitos, tirar dúvidas e orientar
-- Não seja robótico
+Sua função é conversar naturalmente sobre finanças pessoais
+e decidir UMA ação quando necessário.
 
 AÇÕES POSSÍVEIS:
 - REGISTRAR_DESPESA
@@ -75,9 +78,9 @@ AÇÕES POSSÍVEIS:
 - PEDIR_CONFIRMACAO
 - RESPONDER
 
-FORMATO OBRIGATÓRIO DA RESPOSTA (JSON VÁLIDO):
+FORMATO OBRIGATÓRIO (JSON VÁLIDO):
 {
-  "acao": "RESPONDER | REGISTRAR_DESPESA | REGISTRAR_RECEITA | PEDIR_CONFIRMACAO",
+  "acao": "",
   "dados": {
     "descricao": "",
     "valor": 0,
@@ -89,10 +92,9 @@ FORMATO OBRIGATÓRIO DA RESPOSTA (JSON VÁLIDO):
 
 REGRAS:
 - Nunca invente valores
-- Se faltar qualquer dado para registrar algo, use PEDIR_CONFIRMACAO
-- Se for apenas conversa, explicação ou dúvida, use RESPONDER
-- Nunca salve dados diretamente
-- Sempre responda em JSON válido
+- Se faltar qualquer dado, use PEDIR_CONFIRMACAO
+- Se for conversa normal, use RESPONDER
+- Nunca responda fora do JSON
 `
           },
           {
@@ -133,59 +135,69 @@ REGRAS:
     console.log("🧠 Resposta bruta da IA:", rawReply);
 
     /* ===============================
-       TENTAR PARSE DO JSON
+       PARSE DO JSON
     ================================ */
     let acaoSistema;
     try {
       acaoSistema = JSON.parse(rawReply);
     } catch {
-      // Se não for JSON (fallback de segurança)
       return res.json({ reply: rawReply });
     }
 
     /* ===============================
-       AÇÃO: RESPONDER (CONVERSA NORMAL)
+       RESPONDER (CONVERSA)
     ================================ */
     if (acaoSistema.acao === "RESPONDER") {
       return res.json({
         reply:
           acaoSistema.mensagem_usuario ||
-          "🔮 Estou aqui. Como posso ajudar com suas finanças?",
+          "🔮 Estou aqui. Como posso ajudar?",
       });
     }
 
     /* ===============================
-       AÇÃO: PEDIR CONFIRMAÇÃO
+       PEDIR CONFIRMAÇÃO
     ================================ */
     if (acaoSistema.acao === "PEDIR_CONFIRMACAO") {
       return res.json({
         reply:
           acaoSistema.mensagem_usuario ||
-          "⚠️ Preciso de mais algumas informações para continuar.",
+          "⚠️ Preciso de mais informações para continuar.",
       });
     }
 
     /* ===============================
-       AÇÃO: REGISTRAR DESPESA
+       REGISTRAR DESPESA
     ================================ */
     if (acaoSistema.acao === "REGISTRAR_DESPESA") {
       const { descricao, valor, categoria, data } = acaoSistema.dados;
 
-      if (!descricao || !valor || !categoria || !data) {
+      if (!descricao || !valor || !categoria) {
         return res.json({
           reply:
-            "⚠️ Para registrar a despesa, preciso de descrição, valor, categoria e data.",
+            "⚠️ Preciso da descrição, valor e categoria para registrar a despesa.",
         });
       }
 
+      // Normalização de data (TEXT no banco)
+      const rawDate = data || new Date().toISOString();
+      const expenseDate = rawDate.split("T")[0]; // YYYY-MM-DD
+
+      const dateObj = new Date(expenseDate);
+      const statement_month = dateObj.getMonth() + 1;
+      const statement_year = dateObj.getFullYear();
+
       const { error } = await supabase.from("despesas").insert([
         {
+          user_id: userId,
           description: descricao,
-          amount: valor,
+          amount: Number(valor),
           category: categoria,
-          expense_date: data,
+          expense_date: expenseDate,
+          statement_month,
+          statement_year,
           expense_type: "Variável",
-          status: "registrada",
+          status: "pendente",
         },
       ]);
 
@@ -193,14 +205,15 @@ REGRAS:
         console.error("❌ Erro Supabase:", error);
         return res.json({
           reply:
-            "❌ Tentei registrar a despesa, mas algo deu errado. Vamos tentar novamente?",
+            "❌ Tive um problema ao registrar a despesa. Vamos tentar novamente?",
         });
       }
 
       return res.json({
         reply:
           acaoSistema.mensagem_usuario ||
-          "✅ Despesa registrada com sucesso! Quer registrar outra ou analisar seus gastos?",
+          "✅ Despesa registrada! Quer ver um resumo do mês ou registrar outra?",
+        action: "REFRESH_DESPESAS",
       });
     }
 
@@ -214,7 +227,7 @@ REGRAS:
     console.error("🔥 Erro geral:", err);
     return res.status(500).json({
       reply:
-        "⚠️ O Oráculo encontrou uma turbulência astral. Tente novamente em instantes.",
+        "⚠️ O Oráculo encontrou uma instabilidade. Tente novamente.",
     });
   }
 });
