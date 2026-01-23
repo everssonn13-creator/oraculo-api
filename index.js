@@ -16,6 +16,7 @@ const supabase = createClient(
 const app = express();
 app.use(express.json());
 
+// CORS
 app.use((req, res, next) => {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
@@ -25,16 +26,32 @@ app.use((req, res, next) => {
 
 app.options("*", (_, res) => res.sendStatus(200));
 
+/* ===============================
+   MEMÓRIA POR USUÁRIO (RAM)
+================================ */
+const memory = {};
+/*
+memory[userId] = {
+  pendingExpense: {
+    descricao,
+    valor,
+    categoria,
+    data
+  }
+}
+*/
+
+/* ===============================
+   HEALTH
+================================ */
 app.get("/", (_, res) => {
-  res.send("🔮 Oráculo Financeiro ativo e observando seus gastos...");
+  res.send("🔮 Oráculo Financeiro ativo e consciente.");
 });
 
 /* ===============================
-   MEMÓRIA TEMPORÁRIA (POR USUÁRIO)
+   UTIL
 ================================ */
-const pendingActions = {}; 
-// estrutura:
-// pendingActions[userId] = { descricao, valor, data }
+const todayISO = () => new Date().toISOString().split("T")[0];
 
 /* ===============================
    ROTA PRINCIPAL
@@ -43,49 +60,18 @@ app.post("/oraculo", async (req, res) => {
   try {
     const { message, user_id } = req.body;
 
-    console.log("📩 Mensagem recebida:", message);
-    console.log("👤 User ID:", user_id);
+    console.log("📩 Mensagem:", message);
+    console.log("👤 User:", user_id);
 
     if (!message || !user_id) {
-      return res.json({
-        reply: "⚠️ Não consegui identificar seu usuário. Atualize a página e tente novamente."
-      });
+      return res.json({ reply: "⚠️ Não consegui identificar seu usuário." });
     }
 
-    /* ===============================
-       CASO: EXISTE AÇÃO PENDENTE
-    ================================ */
-    if (pendingActions[user_id]) {
-      const pending = pendingActions[user_id];
+    if (!memory[user_id]) memory[user_id] = {};
+    if (!memory[user_id].pendingExpense)
+      memory[user_id].pendingExpense = {};
 
-      // Consideramos a mensagem como categoria
-      const categoria = message.trim();
-
-      const { error } = await supabase.from("despesas").insert([
-        {
-          user_id,
-          description: pending.descricao,
-          amount: pending.valor,
-          category: categoria,
-          expense_date: pending.data,
-          expense_type: "Variável",
-          status: "pendente"
-        }
-      ]);
-
-      if (error) {
-        console.error("❌ Erro Supabase:", error);
-        return res.json({
-          reply: "❌ Tive um problema ao registrar sua despesa. Vamos tentar novamente?"
-        });
-      }
-
-      delete pendingActions[user_id];
-
-      return res.json({
-        reply: "✅ Despesa registrada com sucesso! Quer registrar outra?"
-      });
-    }
+    const pending = memory[user_id].pendingExpense;
 
     /* ===============================
        CHAMADA OPENAI
@@ -104,83 +90,123 @@ app.post("/oraculo", async (req, res) => {
             content: `
 Você é o Oráculo Financeiro 🔮.
 
-Extraia informações financeiras quando existirem.
+OBJETIVO:
+Conversar naturalmente com o usuário sobre finanças pessoais.
+Quando identificar uma despesa, ajude a registrar.
 
-FORMATO OBRIGATÓRIO (JSON):
+REGRAS IMPORTANTES:
+- Não repita perguntas já respondidas
+- Só pergunte o que estiver faltando
+- Use os dados já conhecidos
+- Nunca invente valores
+- Data padrão é hoje se não informada
+
+FORMATO DE SAÍDA (JSON):
 {
-  "acao": "REGISTRAR_DESPESA | RESPONDER | PEDIR_CONFIRMACAO",
+  "acao": "RESPONDER | COLETAR_DADO | REGISTRAR_DESPESA",
   "dados": {
     "descricao": "",
-    "valor": 0,
-    "data": "YYYY-MM-DD"
+    "valor": null,
+    "categoria": "",
+    "data": ""
   },
   "mensagem_usuario": ""
 }
-
-REGRAS:
-- Se for uma despesa clara, use REGISTRAR_DESPESA
-- Se faltar categoria, backend irá pedir
-- Nunca invente valores
-- Sempre JSON válido
 `
           },
-          { role: "user", content: message }
+          {
+            role: "user",
+            content: message
+          }
         ]
       })
     });
 
     const data = await response.json();
 
-    let rawReply = null;
-    for (const item of data.output || []) {
-      const text = item.content?.find(c => c.type === "output_text")?.text;
-      if (text) rawReply = text;
+    let raw = null;
+    for (const o of data.output || []) {
+      for (const c of o.content || []) {
+        if (c.type === "output_text") raw = c.text;
+      }
     }
 
-    if (!rawReply) {
-      return res.json({ reply: "⚠️ Não consegui entender. Pode reformular?" });
+    if (!raw) {
+      return res.json({ reply: "⚠️ Não consegui interpretar sua mensagem." });
     }
 
-    const parsed = JSON.parse(rawReply);
+    console.log("🧠 IA:", raw);
+
+    const action = JSON.parse(raw);
 
     /* ===============================
-       REGISTRAR DESPESA (SEM CATEGORIA)
+       ATUALIZA MEMÓRIA
     ================================ */
-    if (parsed.acao === "REGISTRAR_DESPESA") {
-      const { descricao, valor, data } = parsed.dados;
+    const d = action.dados || {};
 
-      pendingActions[user_id] = {
-        descricao,
-        valor,
-        data
-      };
+    if (d.descricao) pending.descricao = d.descricao;
+    if (d.valor) pending.valor = d.valor;
+    if (d.categoria) pending.categoria = d.categoria;
+    if (d.data) pending.data = d.data;
 
+    if (!pending.data) pending.data = todayISO();
+
+    /* ===============================
+       VERIFICA O QUE FALTA
+    ================================ */
+    const missing = [];
+    if (!pending.descricao) missing.push("descrição");
+    if (!pending.valor) missing.push("valor");
+    if (!pending.categoria) missing.push("categoria");
+
+    /* ===============================
+       PEDIR SOMENTE O QUE FALTA
+    ================================ */
+    if (missing.length > 0) {
       return res.json({
         reply:
-          parsed.mensagem_usuario ||
-          "Confirme a categoria da despesa (ex: Alimentação, Transporte, Lazer)."
+          action.mensagem_usuario ||
+          `Preciso apenas confirmar: ${missing.join(", ")}.`
       });
     }
 
     /* ===============================
-       CONVERSA NORMAL
+       REGISTRAR DESPESA
     ================================ */
+    const { error } = await supabase.from("despesas").insert({
+      user_id,
+      description: pending.descricao,
+      amount: pending.valor,
+      category: pending.categoria,
+      expense_date: pending.data,
+      expense_type: "Variável",
+      status: "pendente"
+    });
+
+    if (error) {
+      console.error("❌ Supabase:", error);
+      return res.json({
+        reply: "❌ Tive um problema ao salvar a despesa."
+      });
+    }
+
+    // Limpa memória
+    memory[user_id].pendingExpense = {};
+
     return res.json({
-      reply:
-        parsed.mensagem_usuario ||
-        "🔮 Estou aqui para te ajudar com suas finanças."
+      reply: "✅ Despesa registrada com sucesso! Quer registrar outra?"
     });
 
   } catch (err) {
-    console.error("🔥 Erro geral:", err);
-    return res.status(500).json({
-      reply: "⚠️ O Oráculo encontrou uma instabilidade. Tente novamente."
+    console.error("🔥 Erro:", err);
+    res.status(500).json({
+      reply: "⚠️ O Oráculo teve uma falha momentânea."
     });
   }
 });
 
 /* ===============================
-   START SERVER
+   START
 ================================ */
 const PORT = process.env.PORT || 8080;
 app.listen(PORT, () => {
