@@ -16,7 +16,6 @@ const supabase = createClient(
 const app = express();
 app.use(express.json());
 
-// CORS
 app.use((req, res, next) => {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
@@ -26,24 +25,16 @@ app.use((req, res, next) => {
 
 app.options("*", (_, res) => res.sendStatus(200));
 
-// Health check
 app.get("/", (_, res) => {
   res.send("🔮 Oráculo Financeiro ativo e observando seus gastos...");
 });
 
 /* ===============================
-   MEMÓRIA TEMPORÁRIA (V1)
+   MEMÓRIA TEMPORÁRIA (POR USUÁRIO)
 ================================ */
-const pendingActions = {};
-/*
-pendingActions[user_id] = {
-  tipo: "DESPESA",
-  descricao: string,
-  valor: number,
-  data: string (YYYY-MM-DD),
-  aguardandoCategoria: boolean
-}
-*/
+const pendingActions = {}; 
+// estrutura:
+// pendingActions[userId] = { descricao, valor, data }
 
 /* ===============================
    ROTA PRINCIPAL
@@ -55,53 +46,44 @@ app.post("/oraculo", async (req, res) => {
     console.log("📩 Mensagem recebida:", message);
     console.log("👤 User ID:", user_id);
 
-    if (!message) {
-      return res.json({ reply: "⚠️ Não recebi nenhuma mensagem." });
-    }
-
-    if (!user_id) {
+    if (!message || !user_id) {
       return res.json({
-        reply:
-          "⚠️ Não consegui identificar seu usuário. Atualize a página e tente novamente.",
+        reply: "⚠️ Não consegui identificar seu usuário. Atualize a página e tente novamente."
       });
     }
 
-    /* =====================================================
-       CONTINUAÇÃO DE AÇÃO PENDENTE (ex: categoria)
-    ====================================================== */
-    if (
-      pendingActions[user_id] &&
-      pendingActions[user_id].aguardandoCategoria === true
-    ) {
+    /* ===============================
+       CASO: EXISTE AÇÃO PENDENTE
+    ================================ */
+    if (pendingActions[user_id]) {
       const pending = pendingActions[user_id];
-      const categoria = message.trim();
 
-      const { descricao, valor, data } = pending;
+      // Consideramos a mensagem como categoria
+      const categoria = message.trim();
 
       const { error } = await supabase.from("despesas").insert([
         {
           user_id,
-          description: descricao,
-          amount: valor,
+          description: pending.descricao,
+          amount: pending.valor,
           category: categoria,
-          expense_date: data,
+          expense_date: pending.data,
           expense_type: "Variável",
-          status: "pendente",
-        },
+          status: "pendente"
+        }
       ]);
-
-      delete pendingActions[user_id];
 
       if (error) {
         console.error("❌ Erro Supabase:", error);
         return res.json({
-          reply:
-            "❌ Tentei registrar a despesa, mas algo deu errado. Vamos tentar novamente?",
+          reply: "❌ Tive um problema ao registrar sua despesa. Vamos tentar novamente?"
         });
       }
 
+      delete pendingActions[user_id];
+
       return res.json({
-        reply: `✅ Despesa registrada em **${categoria}** com sucesso! Quer registrar outra ou analisar seus gastos?`,
+        reply: "✅ Despesa registrada com sucesso! Quer registrar outra?"
       });
     }
 
@@ -120,135 +102,79 @@ app.post("/oraculo", async (req, res) => {
           {
             role: "system",
             content: `
-Você é o Oráculo Financeiro 🔮 — especialista em finanças pessoais.
+Você é o Oráculo Financeiro 🔮.
 
-OBJETIVO:
-Conversar naturalmente e decidir UMA ação do sistema.
-
-AÇÕES:
-- REGISTRAR_DESPESA
-- PEDIR_CONFIRMACAO
-- RESPONDER
+Extraia informações financeiras quando existirem.
 
 FORMATO OBRIGATÓRIO (JSON):
 {
-  "acao": "",
+  "acao": "REGISTRAR_DESPESA | RESPONDER | PEDIR_CONFIRMACAO",
   "dados": {
     "descricao": "",
     "valor": 0,
-    "categoria": "",
     "data": "YYYY-MM-DD"
   },
   "mensagem_usuario": ""
 }
 
 REGRAS:
-- Nunca invente dados
-- Se faltar qualquer informação, use PEDIR_CONFIRMACAO
-- Sempre responda em JSON válido
-`,
+- Se for uma despesa clara, use REGISTRAR_DESPESA
+- Se faltar categoria, backend irá pedir
+- Nunca invente valores
+- Sempre JSON válido
+`
           },
-          {
-            role: "user",
-            content: message,
-          },
-        ],
-      }),
+          { role: "user", content: message }
+        ]
+      })
     });
 
     const data = await response.json();
 
     let rawReply = null;
-    if (Array.isArray(data.output)) {
-      for (const item of data.output) {
-        const textBlock = item.content?.find(
-          (c) => c.type === "output_text"
-        );
-        if (textBlock?.text) {
-          rawReply = textBlock.text;
-          break;
-        }
-      }
+    for (const item of data.output || []) {
+      const text = item.content?.find(c => c.type === "output_text")?.text;
+      if (text) rawReply = text;
     }
 
     if (!rawReply) {
-      return res.json({
-        reply: "⚠️ O Oráculo ficou pensativo demais… tente novamente.",
-      });
+      return res.json({ reply: "⚠️ Não consegui entender. Pode reformular?" });
     }
 
-    const acaoSistema = JSON.parse(rawReply);
+    const parsed = JSON.parse(rawReply);
 
     /* ===============================
-       RESPONDER NORMAL
+       REGISTRAR DESPESA (SEM CATEGORIA)
     ================================ */
-    if (acaoSistema.acao === "RESPONDER") {
-      return res.json({
-        reply:
-          acaoSistema.mensagem_usuario ||
-          "🔮 Estou aqui. Como posso ajudar?",
-      });
-    }
-
-    /* ===============================
-       PEDIR CONFIRMAÇÃO
-    ================================ */
-    if (acaoSistema.acao === "PEDIR_CONFIRMACAO") {
-      const { descricao, valor, data } = acaoSistema.dados;
+    if (parsed.acao === "REGISTRAR_DESPESA") {
+      const { descricao, valor, data } = parsed.dados;
 
       pendingActions[user_id] = {
-        tipo: "DESPESA",
         descricao,
         valor,
-        data,
-        aguardandoCategoria: true,
+        data
       };
 
       return res.json({
-        reply: acaoSistema.mensagem_usuario,
+        reply:
+          parsed.mensagem_usuario ||
+          "Confirme a categoria da despesa (ex: Alimentação, Transporte, Lazer)."
       });
     }
 
     /* ===============================
-       REGISTRAR DESPESA DIRETA
+       CONVERSA NORMAL
     ================================ */
-    if (acaoSistema.acao === "REGISTRAR_DESPESA") {
-      const { descricao, valor, categoria, data } = acaoSistema.dados;
-
-      const { error } = await supabase.from("despesas").insert([
-        {
-          user_id,
-          description: descricao,
-          amount: valor,
-          category: categoria,
-          expense_date: data,
-          expense_type: "Variável",
-          status: "pendente",
-        },
-      ]);
-
-      if (error) {
-        console.error("❌ Erro Supabase:", error);
-        return res.json({
-          reply:
-            "❌ Tentei registrar a despesa, mas algo deu errado.",
-        });
-      }
-
-      return res.json({
-        reply:
-          "✅ Despesa registrada com sucesso! Quer registrar outra?",
-      });
-    }
-
     return res.json({
-      reply: "🤔 Não entendi completamente. Pode reformular?",
+      reply:
+        parsed.mensagem_usuario ||
+        "🔮 Estou aqui para te ajudar com suas finanças."
     });
+
   } catch (err) {
     console.error("🔥 Erro geral:", err);
     return res.status(500).json({
-      reply:
-        "⚠️ O Oráculo encontrou uma turbulência astral. Tente novamente.",
+      reply: "⚠️ O Oráculo encontrou uma instabilidade. Tente novamente."
     });
   }
 });
