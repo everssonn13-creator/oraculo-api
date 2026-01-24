@@ -1,6 +1,16 @@
 import express from "express";
 import fetch from "node-fetch";
 import { createClient } from "@supabase/supabase-js";
+import {
+  parse,
+  parseISO,
+  isValid,
+  subDays,
+  subWeeks,
+  subMonths,
+  previousFriday
+} from "date-fns";
+import { ptBR } from "date-fns/locale";
 
 /* ===============================
    SUPABASE
@@ -16,7 +26,6 @@ const supabase = createClient(
 const app = express();
 app.use(express.json());
 
-// CORS
 app.use((req, res, next) => {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
@@ -27,9 +36,60 @@ app.use((req, res, next) => {
 app.options("*", (_, res) => res.sendStatus(200));
 
 /* ===============================
-   MEMÓRIA CURTA
+   MEMÓRIA CURTA (POR USUÁRIO)
 ================================ */
 const memory = {};
+
+/* ===============================
+   UTIL — DATA
+================================ */
+const today = () => new Date();
+
+function resolveDate(input) {
+  if (!input) return today();
+
+  const text = input.toLowerCase();
+  const base = today();
+
+  // Palavras simples
+  if (text.includes("hoje")) return base;
+  if (text.includes("ontem")) return subDays(base, 1);
+  if (text.includes("anteontem")) return subDays(base, 2);
+
+  // Semana passada
+  if (text.includes("semana passada")) {
+    return subWeeks(base, 1);
+  }
+
+  // Mês passado
+  if (text.includes("mês passado")) {
+    return subMonths(base, 1);
+  }
+
+  // Sexta passada
+  if (text.includes("sexta passada")) {
+    return previousFriday(base);
+  }
+
+  // Datas explícitas dd/MM/yyyy
+  const parsedNumeric = parse(input, "dd/MM/yyyy", new Date(), { locale: ptBR });
+  if (isValid(parsedNumeric)) return parsedNumeric;
+
+  // Datas por extenso
+  const parsedTextual = parse(
+    input,
+    "d 'de' MMMM 'de' yyyy",
+    new Date(),
+    { locale: ptBR }
+  );
+  if (isValid(parsedTextual)) return parsedTextual;
+
+  // ISO direto
+  const parsedISO = parseISO(input);
+  if (isValid(parsedISO)) return parsedISO;
+
+  return base;
+}
 
 /* ===============================
    HEALTH
@@ -39,11 +99,6 @@ app.get("/", (_, res) => {
 });
 
 /* ===============================
-   UTIL
-================================ */
-const todayISO = () => new Date().toISOString().split("T")[0];
-
-/* ===============================
    ROTA PRINCIPAL
 ================================ */
 app.post("/oraculo", async (req, res) => {
@@ -51,10 +106,13 @@ app.post("/oraculo", async (req, res) => {
     const { message, user_id } = req.body;
 
     if (!message || !user_id) {
-      return res.json({ reply: "⚠️ Usuário não identificado." });
+      return res.json({ reply: "⚠️ Não consegui identificar o usuário." });
     }
 
-    if (!memory[user_id]) memory[user_id] = { pendingExpense: {} };
+    if (!memory[user_id]) {
+      memory[user_id] = { pendingExpense: {} };
+    }
+
     const pending = memory[user_id].pendingExpense;
 
     /* ===============================
@@ -64,7 +122,7 @@ app.post("/oraculo", async (req, res) => {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+        Authorization: `Bearer ${process.env.OPENAI_API_KEY}`
       },
       body: JSON.stringify({
         model: "gpt-5-mini",
@@ -72,97 +130,47 @@ app.post("/oraculo", async (req, res) => {
           {
             role: "system",
             content: `
-Você é o ORÁCULO FINANCEIRO 🔮.
+Você é o Oráculo Financeiro 🔮.
 
-========================
-MISSÃO
-========================
-Converter linguagem humana informal em registros financeiros EXATOS.
+OBJETIVO:
+Extrair dados de despesas a partir de mensagens livres.
 
-========================
-REGRA ABSOLUTA SOBRE DATAS
-========================
-❗ SE o usuário mencionar QUALQUER referência temporal,
-VOCÊ DEVE calcular e retornar uma data REAL no formato YYYY-MM-DD.
+REGRAS:
+- Nunca invente valores
+- Nunca invente datas
+- Se a data for relativa (ex: "sexta passada"), apenas IDENTIFIQUE
+- NÃO calcule datas
+- NÃO assuma categoria se não tiver certeza
 
-❗ NUNCA retorne data vaga.
-❗ NUNCA omita a data se houver referência temporal.
-
-========================
-COMO CALCULAR DATAS
-========================
-Considere HOJE como a data atual do sistema.
-
-- hoje → hoje
-- ontem → hoje - 1 dia
-- amanhã → hoje + 1 dia
-
-- sexta passada →
-  a sexta-feira imediatamente ANTERIOR à semana atual
-
-- sexta retrasada →
-  a sexta-feira DUAS semanas antes da atual
-
-- segunda que vem →
-  a próxima segunda-feira após hoje
-
-- dia 10 →
-  dia 10 do mês atual (ou do próximo mês se já passou)
-
-- 10 de janeiro de 2026 →
-  2026-01-10
-
-⚠️ Exemplos OBRIGATÓRIOS:
-"bicicleta 1000 sexta passada"
-→ data DEVE ser algo como: "2026-01-16" (exemplo)
-
-========================
-CATEGORIAS AUTOMÁTICAS
-========================
-- Alimentação: mercado, lanche, comida, restaurante
-- Transporte: uber, taxi, gasolina, combustível
-- Compras: bicicleta, notebook, roupa, tênis
-- Moradia: aluguel, condomínio
-- Contas: luz, água, internet
-- Lazer: cinema, bar, show
-- Saúde: médico, farmácia
-
-Só pergunte categoria se NÃO for possível inferir.
-
-========================
-FORMATO DE SAÍDA (JSON PURO)
-========================
+FORMATO DE SAÍDA (JSON PURO):
 {
-  "acao": "RESPONDER" | "COLETAR_DADO" | "REGISTRAR_DESPESA",
+  "acao": "RESPONDER | COLETAR_DADO | REGISTRAR_DESPESA",
   "dados": {
-    "descricao": string | null,
-    "valor": number | null,
-    "categoria": string | null,
-    "data": "YYYY-MM-DD" | null
+    "descricao": "",
+    "valor": null,
+    "categoria": "",
+    "expressao_data": ""
   },
-  "mensagem_usuario": string
+  "mensagem_usuario": ""
 }
 `
           },
-          {
-            role: "user",
-            content: message
-          }
+          { role: "user", content: message }
         ]
       })
     });
 
-    const data = await response.json();
+    const aiData = await response.json();
 
     let raw = null;
-    for (const o of data.output || []) {
+    for (const o of aiData.output || []) {
       for (const c of o.content || []) {
         if (c.type === "output_text") raw = c.text;
       }
     }
 
     if (!raw) {
-      return res.json({ reply: "⚠️ Não consegui entender." });
+      return res.json({ reply: "⚠️ Não consegui entender sua mensagem." });
     }
 
     const action = JSON.parse(raw);
@@ -171,10 +179,11 @@ FORMATO DE SAÍDA (JSON PURO)
     if (d.descricao) pending.descricao = d.descricao;
     if (d.valor) pending.valor = d.valor;
     if (d.categoria) pending.categoria = d.categoria;
-    if (d.data) pending.data = d.data;
+    if (d.expressao_data) pending.expressao_data = d.expressao_data;
 
-    if (!pending.data) pending.data = todayISO();
-
+    /* ===============================
+       VERIFICA O QUE FALTA
+    ================================ */
     const missing = [];
     if (!pending.descricao) missing.push("descrição");
     if (!pending.valor) missing.push("valor");
@@ -182,21 +191,33 @@ FORMATO DE SAÍDA (JSON PURO)
 
     if (missing.length > 0) {
       return res.json({
-        reply: action.mensagem_usuario || `Confirme: ${missing.join(", ")}.`
+        reply:
+          action.mensagem_usuario ||
+          `Preciso confirmar: ${missing.join(", ")}.`
       });
     }
 
+    /* ===============================
+       RESOLVE DATA
+    ================================ */
+    const finalDate = resolveDate(pending.expressao_data);
+
+    /* ===============================
+       REGISTRA DESPESA
+    ================================ */
     const { error } = await supabase.from("despesas").insert({
       user_id,
       description: pending.descricao,
       amount: pending.valor,
       category: pending.categoria,
-      expense_date: pending.data,
+      expense_date: finalDate.toISOString(),
+      data_vencimento: finalDate.toISOString(),
       expense_type: "Variável",
       status: "pendente"
     });
 
     if (error) {
+      console.error(error);
       return res.json({ reply: "❌ Erro ao salvar despesa." });
     }
 
@@ -208,7 +229,9 @@ FORMATO DE SAÍDA (JSON PURO)
 
   } catch (err) {
     console.error(err);
-    return res.status(500).json({ reply: "⚠️ Falha do Oráculo." });
+    res.status(500).json({
+      reply: "⚠️ O Oráculo encontrou uma dissonância temporária."
+    });
   }
 });
 
