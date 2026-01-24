@@ -82,11 +82,11 @@ const resolveRelativeDate = (text) => {
 const CATEGORIES = [
   { id: "moradia", name: "Moradia", keywords: ["aluguel", "condominio", "iptu", "luz", "agua", "internet", "gas"] },
   { id: "alimentacao", name: "Alimentação", keywords: ["mercado", "supermercado", "lanche", "comida", "restaurante", "padaria"] },
+   { id: "compras", name: "Compras", keywords: ["tenis", "roupa", "bicicleta", "notebook", "eletronico"] },
   { id: "transporte", name: "Transporte", keywords: ["uber", "99", "taxi", "onibus", "metro", "gasolina", "combustivel"] },
   { id: "saude", name: "Saúde", keywords: ["farmacia", "medico", "dentista", "remedio"] },
   { id: "educacao", name: "Educação", keywords: ["curso", "faculdade", "livro"] },
   { id: "lazer", name: "Lazer", keywords: ["cinema", "show", "bar", "viagem"] },
-  { id: "compras", name: "Compras", keywords: ["tenis", "roupa", "bicicleta", "notebook", "eletronico"] },
   { id: "assinaturas", name: "Assinaturas", keywords: ["netflix", "spotify", "assinatura", "plano"] },
   { id: "pets", name: "Pets", keywords: ["pet", "racao", "veterinario"] },
   { id: "presentes", name: "Presentes", keywords: ["presente", "aniversario"] },
