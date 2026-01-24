@@ -1,16 +1,6 @@
 import express from "express";
 import fetch from "node-fetch";
 import { createClient } from "@supabase/supabase-js";
-import {
-  parse,
-  parseISO,
-  isValid,
-  subDays,
-  subWeeks,
-  subMonths,
-  previousFriday
-} from "date-fns";
-import { ptBR } from "date-fns/locale";
 
 /* ===============================
    SUPABASE
@@ -36,59 +26,68 @@ app.use((req, res, next) => {
 app.options("*", (_, res) => res.sendStatus(200));
 
 /* ===============================
-   MEMÓRIA CURTA (POR USUÁRIO)
+   MEMÓRIA CURTA
 ================================ */
 const memory = {};
 
 /* ===============================
-   UTIL — DATA
+   UTIL — DATAS (JS PURO)
 ================================ */
-const today = () => new Date();
+function startOfDay(date) {
+  const d = new Date(date);
+  d.setHours(0, 0, 0, 0);
+  return d;
+}
 
-function resolveDate(input) {
-  if (!input) return today();
+function resolveDate(expression) {
+  const today = startOfDay(new Date());
 
-  const text = input.toLowerCase();
-  const base = today();
+  if (!expression) return today;
 
-  // Palavras simples
-  if (text.includes("hoje")) return base;
-  if (text.includes("ontem")) return subDays(base, 1);
-  if (text.includes("anteontem")) return subDays(base, 2);
+  const text = expression.toLowerCase();
 
-  // Semana passada
+  if (text.includes("hoje")) return today;
+
+  if (text.includes("ontem")) {
+    const d = new Date(today);
+    d.setDate(d.getDate() - 1);
+    return d;
+  }
+
+  if (text.includes("anteontem")) {
+    const d = new Date(today);
+    d.setDate(d.getDate() - 2);
+    return d;
+  }
+
   if (text.includes("semana passada")) {
-    return subWeeks(base, 1);
+    const d = new Date(today);
+    d.setDate(d.getDate() - 7);
+    return d;
   }
 
-  // Mês passado
   if (text.includes("mês passado")) {
-    return subMonths(base, 1);
+    const d = new Date(today);
+    d.setMonth(d.getMonth() - 1);
+    return d;
   }
 
-  // Sexta passada
   if (text.includes("sexta passada")) {
-    return previousFriday(base);
+    const d = new Date(today);
+    const day = d.getDay(); // 0 dom, 5 sex
+    const diff = day >= 5 ? day - 5 : day + 2;
+    d.setDate(d.getDate() - diff - 7);
+    return d;
   }
 
-  // Datas explícitas dd/MM/yyyy
-  const parsedNumeric = parse(input, "dd/MM/yyyy", new Date(), { locale: ptBR });
-  if (isValid(parsedNumeric)) return parsedNumeric;
+  // dd/MM/yyyy
+  const matchNumeric = text.match(/(\d{2})\/(\d{2})\/(\d{4})/);
+  if (matchNumeric) {
+    const [, dd, mm, yyyy] = matchNumeric;
+    return new Date(`${yyyy}-${mm}-${dd}T00:00:00`);
+  }
 
-  // Datas por extenso
-  const parsedTextual = parse(
-    input,
-    "d 'de' MMMM 'de' yyyy",
-    new Date(),
-    { locale: ptBR }
-  );
-  if (isValid(parsedTextual)) return parsedTextual;
-
-  // ISO direto
-  const parsedISO = parseISO(input);
-  if (isValid(parsedISO)) return parsedISO;
-
-  return base;
+  return today;
 }
 
 /* ===============================
@@ -106,7 +105,7 @@ app.post("/oraculo", async (req, res) => {
     const { message, user_id } = req.body;
 
     if (!message || !user_id) {
-      return res.json({ reply: "⚠️ Não consegui identificar o usuário." });
+      return res.json({ reply: "⚠️ Usuário não identificado." });
     }
 
     if (!memory[user_id]) {
@@ -132,17 +131,16 @@ app.post("/oraculo", async (req, res) => {
             content: `
 Você é o Oráculo Financeiro 🔮.
 
-OBJETIVO:
-Extrair dados de despesas a partir de mensagens livres.
+Extraia dados de despesas a partir de linguagem natural.
 
 REGRAS:
 - Nunca invente valores
 - Nunca invente datas
 - Se a data for relativa (ex: "sexta passada"), apenas IDENTIFIQUE
-- NÃO calcule datas
-- NÃO assuma categoria se não tiver certeza
+- Não calcule datas
+- Não assuma categoria se não tiver certeza
 
-FORMATO DE SAÍDA (JSON PURO):
+FORMATO JSON PURO:
 {
   "acao": "RESPONDER | COLETAR_DADO | REGISTRAR_DESPESA",
   "dados": {
@@ -170,7 +168,7 @@ FORMATO DE SAÍDA (JSON PURO):
     }
 
     if (!raw) {
-      return res.json({ reply: "⚠️ Não consegui entender sua mensagem." });
+      return res.json({ reply: "⚠️ Não consegui entender." });
     }
 
     const action = JSON.parse(raw);
@@ -181,9 +179,6 @@ FORMATO DE SAÍDA (JSON PURO):
     if (d.categoria) pending.categoria = d.categoria;
     if (d.expressao_data) pending.expressao_data = d.expressao_data;
 
-    /* ===============================
-       VERIFICA O QUE FALTA
-    ================================ */
     const missing = [];
     if (!pending.descricao) missing.push("descrição");
     if (!pending.valor) missing.push("valor");
@@ -197,14 +192,8 @@ FORMATO DE SAÍDA (JSON PURO):
       });
     }
 
-    /* ===============================
-       RESOLVE DATA
-    ================================ */
     const finalDate = resolveDate(pending.expressao_data);
 
-    /* ===============================
-       REGISTRA DESPESA
-    ================================ */
     const { error } = await supabase.from("despesas").insert({
       user_id,
       description: pending.descricao,
@@ -230,7 +219,7 @@ FORMATO DE SAÍDA (JSON PURO):
   } catch (err) {
     console.error(err);
     res.status(500).json({
-      reply: "⚠️ O Oráculo encontrou uma dissonância temporária."
+      reply: "⚠️ O Oráculo sofreu uma falha temporária."
     });
   }
 });
