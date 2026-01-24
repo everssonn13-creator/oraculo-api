@@ -91,7 +91,7 @@ const cleanDescription = (text = "") => {
    CATEGORIAS (ALINHADAS AO APP)
 ================================ */
 const CATEGORIES = [
-  { name: "Moradia", keywords: ["aluguel", "condominio", "iptu", "luz", "agua", "internet", "gas"] },
+  { name: "Moradia", keywords: ["aluguel", "condominio", "iptu", "luz", "agua", "internet"] },
   { name: "Alimentação", keywords: ["lanche", "comida", "mercado", "supermercado", "padaria"] },
   { name: "Transporte", keywords: ["gasolina", "combustivel", "uber", "99", "taxi", "onibus", "metro"] },
   { name: "Compras", keywords: ["mochila", "bicicleta", "tenis", "roupa", "notebook", "eletronico"] },
