@@ -31,59 +31,54 @@ app.use((req, res, next) => {
    MEMÓRIA CURTA (RAM)
 ================================ */
 const memory = {};
+
 /*
 memory[userId] = {
-  pendingExpenses: []
+  pendingExpense: {},
+  awaitingConfirmation: false
 }
 */
 
 /* ===============================
-   UTIL — DATAS
+   DATAS
 ================================ */
 const todayISO = () => new Date().toISOString().split("T")[0];
 
-const normalizeDate = (input = "") => {
-  if (!input) return todayISO();
+const normalizeDate = (input) => {
+  if (!input) return null;
 
-  // yyyy-mm-dd
   if (/^\d{4}-\d{2}-\d{2}$/.test(input)) return input;
 
-  // dd/mm/yyyy
   const br = input.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
-  if (br) {
-    const [, d, m, y] = br;
-    return `${y}-${m}-${d}`;
-  }
+  if (br) return `${br[3]}-${br[2]}-${br[1]}`;
 
-  if (input.includes("amanhã")) {
+  if (input.toLowerCase().includes("hoje")) return todayISO();
+
+  if (input.toLowerCase().includes("amanhã")) {
     const d = new Date();
     d.setDate(d.getDate() + 1);
     return d.toISOString().split("T")[0];
   }
 
-  if (input.includes("hoje")) {
-    return todayISO();
-  }
-
-  return todayISO();
+  return null;
 };
 
 /* ===============================
-   CATEGORIAS (IGUAIS AO APP)
+   CATEGORIAS
 ================================ */
 const CATEGORIES = [
   { name: "Moradia", keywords: ["aluguel", "condominio", "iptu", "luz", "agua", "internet"] },
-  { name: "Alimentação", keywords: ["lanche", "mercado", "comida", "restaurante", "padaria"] },
+  { name: "Alimentação", keywords: ["mercado", "supermercado", "lanche", "comida", "padaria"] },
   { name: "Transporte", keywords: ["uber", "99", "taxi", "onibus", "metro", "gasolina", "combustivel"] },
+  { name: "Compras", keywords: ["mochila", "tenis", "roupa", "bicicleta", "notebook", "eletronico"] },
   { name: "Saúde", keywords: ["farmacia", "medico", "dentista", "remedio"] },
   { name: "Educação", keywords: ["curso", "faculdade", "livro"] },
-  { name: "Lazer", keywords: ["cinema", "show", "viagem", "bar"] },
-  { name: "Compras", keywords: ["tenis", "roupa", "mochila", "bicicleta", "notebook", "eletronico"] },
-  { name: "Assinaturas", keywords: ["netflix", "spotify", "assinatura"] },
+  { name: "Lazer", keywords: ["cinema", "show", "bar", "viagem"] },
+  { name: "Assinaturas", keywords: ["netflix", "spotify", "assinatura", "plano"] },
   { name: "Pets", keywords: ["pet", "racao", "veterinario"] },
   { name: "Presentes", keywords: ["presente", "aniversario"] },
   { name: "Dívidas", keywords: ["emprestimo", "financiamento", "divida", "parcela"] },
-  { name: "Investimentos", keywords: ["acao", "fundo", "cripto", "investimento"] }
+  { name: "Investimentos", keywords: ["acao", "fundo", "investimento", "cripto"] }
 ];
 
 const classifyCategory = (text = "") => {
@@ -98,7 +93,7 @@ const classifyCategory = (text = "") => {
    HEALTH
 ================================ */
 app.get("/", (_, res) => {
-  res.send("🔮 Oráculo Financeiro ativo.");
+  res.send("🔮 Oráculo Financeiro desperto.");
 });
 
 /* ===============================
@@ -111,7 +106,61 @@ app.post("/oraculo", async (req, res) => {
       return res.json({ reply: "⚠️ Não consegui identificar seu usuário." });
     }
 
-    if (!memory[user_id]) memory[user_id] = { pendingExpenses: [] };
+    if (!memory[user_id]) {
+      memory[user_id] = { pendingExpense: {}, awaitingConfirmation: false };
+    }
+
+    const state = memory[user_id];
+    const lower = message.toLowerCase();
+
+    /* ===============================
+       CONFIRMAÇÃO
+    ================================ */
+    if (state.awaitingConfirmation && ["sim", "confirmar", "ok", "pode"].includes(lower)) {
+      const p = state.pendingExpense;
+
+      await supabase.from("despesas").insert({
+        user_id,
+        description: p.descricao,
+        amount: p.valor,
+        category: p.categoria,
+        expense_date: p.data,
+        data_vencimento: p.data,
+        status: "pendente",
+        expense_type: "Variável"
+      });
+
+      state.pendingExpense = {};
+      state.awaitingConfirmation = false;
+
+      return res.json({ reply: "✅ Despesa registrada com sucesso. Quer registrar outra?" });
+    }
+
+    /* ===============================
+       RELATÓRIO
+    ================================ */
+    if (lower.includes("relatorio") || lower.includes("resumo") || lower.includes("gastei")) {
+      const { data, error } = await supabase
+        .from("despesas")
+        .select("amount, category, expense_date")
+        .eq("user_id", user_id);
+
+      if (error) return res.json({ reply: "❌ Não consegui gerar o relatório." });
+
+      const total = data.reduce((s, d) => s + Number(d.amount), 0);
+      const byCat = {};
+
+      data.forEach(d => {
+        byCat[d.category] = (byCat[d.category] || 0) + Number(d.amount);
+      });
+
+      let text = `🔮 Relatório Financeiro\n\n💸 Total gasto: R$ ${total.toFixed(2)}\n\n📊 Por categoria:\n`;
+      for (const c in byCat) {
+        text += `• ${c}: R$ ${byCat[c].toFixed(2)}\n`;
+      }
+
+      return res.json({ reply: text });
+    }
 
     /* ===============================
        OPENAI
@@ -129,32 +178,10 @@ app.post("/oraculo", async (req, res) => {
             role: "system",
             content: `
 Você é o ORÁCULO FINANCEIRO 🔮
+Fala como um mentor humano, claro e inteligente.
 
-PERSONALIDADE:
-Mentor financeiro humano, direto, claro e empático.
-
-OBJETIVO:
-Interpretar mensagens livres e identificar UMA OU MAIS DESPESAS.
-
-REGRAS:
-- Sempre separe despesas individuais
-- Nunca pergunte novamente algo já identificado
-- Se a despesa estiver completa, registre
-- Categorias válidas:
-Moradia, Alimentação, Transporte, Saúde, Educação, Lazer, Compras, Assinaturas, Pets, Presentes, Dívidas, Investimentos, Outros
-
-FORMATO DE SAÍDA (JSON PURO):
-{
-  "despesas": [
-    {
-      "descricao": "",
-      "valor": null,
-      "categoria": "",
-      "data": ""
-    }
-  ],
-  "mensagem_usuario": ""
-}
+Extraia despesas da mensagem.
+Nunca invente dados.
 `
           },
           { role: "user", content: message }
@@ -162,58 +189,40 @@ FORMATO DE SAÍDA (JSON PURO):
       })
     });
 
-    const data = await ai.json();
-    let raw = null;
-
-    for (const o of data.output || []) {
-      for (const c of o.content || []) {
-        if (c.type === "output_text") raw = c.text;
-      }
-    }
-
-    if (!raw) {
-      return res.json({ reply: "⚠️ Não consegui interpretar sua mensagem." });
-    }
+    const out = await ai.json();
+    const raw = out.output?.[0]?.content?.[0]?.text;
+    if (!raw) return res.json({ reply: "⚠️ Não consegui interpretar." });
 
     const parsed = JSON.parse(raw);
-    const despesas = parsed.despesas || [];
+    const d = parsed.dados || {};
+    const p = state.pendingExpense;
 
-    if (!despesas.length) {
-      return res.json({ reply: parsed.mensagem_usuario || "Não identifiquei despesas." });
+    if (d.descricao) p.descricao = d.descricao;
+    if (d.valor) p.valor = d.valor;
+    if (!p.categoria && p.descricao) p.categoria = classifyCategory(p.descricao);
+    if (d.data) p.data = normalizeDate(d.data);
+    if (!p.data) p.data = todayISO();
+
+    if (!p.descricao || !p.valor) {
+      return res.json({ reply: "Pode me dizer a descrição ou o valor?" });
     }
 
-    /* ===============================
-       SALVAR TODAS (SEPARADAS)
-    ================================ */
-    for (const d of despesas) {
-      const descricao = d.descricao;
-      const valor = d.valor;
-      const categoria = d.categoria || classifyCategory(descricao);
-      const dataISO = normalizeDate(d.data);
-
-      if (!descricao || !valor) continue;
-
-      await supabase.from("despesas").insert({
-        user_id,
-        description: descricao,
-        amount: valor,
-        category: categoria,
-        expense_date: dataISO,
-        data_vencimento: dataISO,
-        status: "pendente",
-        expense_type: "Variável"
-      });
-    }
+    state.awaitingConfirmation = true;
 
     return res.json({
-      reply: `✅ Tudo certo! Registrei ${despesas.length} despesa(s) com sucesso.`
+      reply: `🔮 Posso registrar assim?
+
+Descrição: ${p.descricao}
+Valor: R$ ${p.valor}
+Categoria: ${p.categoria}
+Data: ${p.data}
+
+Responda "sim" para confirmar.`
     });
 
-  } catch (err) {
-    console.error("🔥 Erro:", err);
-    return res.status(500).json({
-      reply: "⚠️ O Oráculo teve uma visão turva por um instante."
-    });
+  } catch (e) {
+    console.error(e);
+    return res.status(500).json({ reply: "⚠️ O Oráculo teve uma visão turva." });
   }
 });
 
