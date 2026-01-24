@@ -2,17 +2,11 @@ import express from "express";
 import fetch from "node-fetch";
 import { createClient } from "@supabase/supabase-js";
 
-/* ===============================
-   SUPABASE
-================================ */
 const supabase = createClient(
   process.env.SUPABASE_URL,
   process.env.SUPABASE_SERVICE_ROLE_KEY
 );
 
-/* ===============================
-   APP
-================================ */
 const app = express();
 app.use(express.json());
 
@@ -28,60 +22,54 @@ app.use((req, res, next) => {
 });
 
 /* ===============================
-   MEMÓRIA CURTA (RAM)
+   MEMÓRIA CURTA
 ================================ */
 const memory = {};
 
-/*
-memory[userId] = {
-  pendingExpense: {},
-  awaitingConfirmation: false
-}
-*/
-
 /* ===============================
-   DATAS
+   UTIL
 ================================ */
 const todayISO = () => new Date().toISOString().split("T")[0];
 
-const normalizeDate = (input) => {
-  if (!input) return null;
+const monthMap = {
+  janeiro: 1,
+  fevereiro: 2,
+  março: 3,
+  abril: 4,
+  maio: 5,
+  junho: 6,
+  julho: 7,
+  agosto: 8,
+  setembro: 9,
+  outubro: 10,
+  novembro: 11,
+  dezembro: 12
+};
 
-  if (/^\d{4}-\d{2}-\d{2}$/.test(input)) return input;
-
-  const br = input.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
-  if (br) return `${br[3]}-${br[2]}-${br[1]}`;
-
-  if (input.toLowerCase().includes("hoje")) return todayISO();
-
-  if (input.toLowerCase().includes("amanhã")) {
-    const d = new Date();
-    d.setDate(d.getDate() + 1);
-    return d.toISOString().split("T")[0];
+const detectMonth = (text) => {
+  const lower = text.toLowerCase();
+  for (const [name, num] of Object.entries(monthMap)) {
+    if (lower.includes(name)) return num;
   }
-
   return null;
 };
+
+const hasValue = (text) => /\d+([.,]\d+)?/.test(text);
+const wantsReport = (text) => text.toLowerCase().includes("relatório");
 
 /* ===============================
    CATEGORIAS
 ================================ */
 const CATEGORIES = [
   { name: "Moradia", keywords: ["aluguel", "condominio", "iptu", "luz", "agua", "internet"] },
-  { name: "Alimentação", keywords: ["mercado", "supermercado", "lanche", "comida", "padaria"] },
-  { name: "Transporte", keywords: ["uber", "99", "taxi", "onibus", "metro", "gasolina", "combustivel"] },
-  { name: "Compras", keywords: ["mochila", "tenis", "roupa", "bicicleta", "notebook", "eletronico"] },
-  { name: "Saúde", keywords: ["farmacia", "medico", "dentista", "remedio"] },
-  { name: "Educação", keywords: ["curso", "faculdade", "livro"] },
-  { name: "Lazer", keywords: ["cinema", "show", "bar", "viagem"] },
-  { name: "Assinaturas", keywords: ["netflix", "spotify", "assinatura", "plano"] },
-  { name: "Pets", keywords: ["pet", "racao", "veterinario"] },
-  { name: "Presentes", keywords: ["presente", "aniversario"] },
-  { name: "Dívidas", keywords: ["emprestimo", "financiamento", "divida", "parcela"] },
-  { name: "Investimentos", keywords: ["acao", "fundo", "investimento", "cripto"] }
+  { name: "Alimentação", keywords: ["lanche", "comida", "mercado", "restaurante"] },
+  { name: "Transporte", keywords: ["uber", "99", "gasolina", "ônibus", "metro"] },
+  { name: "Compras", keywords: ["mochila", "roupa", "tenis", "bicicleta"] },
+  { name: "Assinaturas", keywords: ["netflix", "spotify", "assinatura"] },
+  { name: "Dívidas", keywords: ["emprestimo", "financiamento"] }
 ];
 
-const classifyCategory = (text = "") => {
+const classifyCategory = (text) => {
   const t = text.toLowerCase();
   for (const c of CATEGORIES) {
     if (c.keywords.some(k => t.includes(k))) return c.name;
@@ -90,81 +78,18 @@ const classifyCategory = (text = "") => {
 };
 
 /* ===============================
-   HEALTH
-================================ */
-app.get("/", (_, res) => {
-  res.send("🔮 Oráculo Financeiro desperto.");
-});
-
-/* ===============================
    ROTA PRINCIPAL
 ================================ */
 app.post("/oraculo", async (req, res) => {
-  try {
-    const { message, user_id } = req.body;
-    if (!message || !user_id) {
-      return res.json({ reply: "⚠️ Não consegui identificar seu usuário." });
-    }
+  const { message, user_id } = req.body;
+  if (!message || !user_id) {
+    return res.json({ reply: "⚠️ Não consegui identificar seu usuário." });
+  }
 
-    if (!memory[user_id]) {
-      memory[user_id] = { pendingExpense: {}, awaitingConfirmation: false };
-    }
-
-    const state = memory[user_id];
-    const lower = message.toLowerCase();
-
-    /* ===============================
-       CONFIRMAÇÃO
-    ================================ */
-    if (state.awaitingConfirmation && ["sim", "confirmar", "ok", "pode"].includes(lower)) {
-      const p = state.pendingExpense;
-
-      await supabase.from("despesas").insert({
-        user_id,
-        description: p.descricao,
-        amount: p.valor,
-        category: p.categoria,
-        expense_date: p.data,
-        data_vencimento: p.data,
-        status: "pendente",
-        expense_type: "Variável"
-      });
-
-      state.pendingExpense = {};
-      state.awaitingConfirmation = false;
-
-      return res.json({ reply: "✅ Despesa registrada com sucesso. Quer registrar outra?" });
-    }
-
-    /* ===============================
-       RELATÓRIO
-    ================================ */
-    if (lower.includes("relatorio") || lower.includes("resumo") || lower.includes("gastei")) {
-      const { data, error } = await supabase
-        .from("despesas")
-        .select("amount, category, expense_date")
-        .eq("user_id", user_id);
-
-      if (error) return res.json({ reply: "❌ Não consegui gerar o relatório." });
-
-      const total = data.reduce((s, d) => s + Number(d.amount), 0);
-      const byCat = {};
-
-      data.forEach(d => {
-        byCat[d.category] = (byCat[d.category] || 0) + Number(d.amount);
-      });
-
-      let text = `🔮 Relatório Financeiro\n\n💸 Total gasto: R$ ${total.toFixed(2)}\n\n📊 Por categoria:\n`;
-      for (const c in byCat) {
-        text += `• ${c}: R$ ${byCat[c].toFixed(2)}\n`;
-      }
-
-      return res.json({ reply: text });
-    }
-
-    /* ===============================
-       OPENAI
-    ================================ */
+  /* ===============================
+     1️⃣ REGISTRO TEM PRIORIDADE ABSOLUTA
+  ================================ */
+  if (hasValue(message)) {
     const ai = await fetch("https://api.openai.com/v1/responses", {
       method: "POST",
       headers: {
@@ -173,57 +98,98 @@ app.post("/oraculo", async (req, res) => {
       },
       body: JSON.stringify({
         model: "gpt-5-mini",
-        input: [
-          {
-            role: "system",
-            content: `
-Você é o ORÁCULO FINANCEIRO 🔮
-Fala como um mentor humano, claro e inteligente.
+        input: [{
+          role: "system",
+          content: `
+Extraia uma despesa.
+Responda APENAS JSON:
 
-Extraia despesas da mensagem.
-Nunca invente dados.
+{
+  "descricao": "",
+  "valor": 0,
+  "data": "hoje|YYYY-MM-DD"
+}
 `
-          },
-          { role: "user", content: message }
-        ]
+        }, { role: "user", content: message }]
       })
     });
 
-    const out = await ai.json();
-    const raw = out.output?.[0]?.content?.[0]?.text;
-    if (!raw) return res.json({ reply: "⚠️ Não consegui interpretar." });
+    const data = await ai.json();
+    const raw = data.output?.[0]?.content?.[0]?.text;
+    if (!raw) return res.json({ reply: "⚠️ Não consegui entender a despesa." });
 
-    const parsed = JSON.parse(raw);
-    const d = parsed.dados || {};
-    const p = state.pendingExpense;
+    const d = JSON.parse(raw);
 
-    if (d.descricao) p.descricao = d.descricao;
-    if (d.valor) p.valor = d.valor;
-    if (!p.categoria && p.descricao) p.categoria = classifyCategory(p.descricao);
-    if (d.data) p.data = normalizeDate(d.data);
-    if (!p.data) p.data = todayISO();
+    const categoria = classifyCategory(d.descricao);
+    const dataFinal = d.data === "hoje" ? todayISO() : d.data;
 
-    if (!p.descricao || !p.valor) {
-      return res.json({ reply: "Pode me dizer a descrição ou o valor?" });
-    }
-
-    state.awaitingConfirmation = true;
-
-    return res.json({
-      reply: `🔮 Posso registrar assim?
-
-Descrição: ${p.descricao}
-Valor: R$ ${p.valor}
-Categoria: ${p.categoria}
-Data: ${p.data}
-
-Responda "sim" para confirmar.`
+    const { error } = await supabase.from("despesas").insert({
+      user_id,
+      description: d.descricao,
+      amount: d.valor,
+      category: categoria,
+      expense_date: dataFinal,
+      data_vencimento: dataFinal,
+      status: "pendente",
+      expense_type: "Variável"
     });
 
-  } catch (e) {
-    console.error(e);
-    return res.status(500).json({ reply: "⚠️ O Oráculo teve uma visão turva." });
+    if (error) {
+      console.error(error);
+      return res.json({ reply: "❌ Erro ao salvar despesa." });
+    }
+
+    return res.json({
+      reply: `✅ Despesa registrada: ${d.descricao} — R$ ${d.valor} (${categoria})`
+    });
   }
+
+  /* ===============================
+     2️⃣ RELATÓRIO (SÓ SE PEDIR)
+  ================================ */
+  if (wantsReport(message)) {
+    const month = detectMonth(message);
+    if (!month) {
+      return res.json({
+        reply: "📅 Qual mês deseja o relatório? (ex: janeiro, fevereiro)"
+      });
+    }
+
+    const year = new Date().getFullYear();
+
+    const { data, error } = await supabase
+      .from("despesas")
+      .select("amount, category")
+      .eq("user_id", user_id)
+      .gte("expense_date", `${year}-${String(month).padStart(2,"0")}-01`)
+      .lte("expense_date", `${year}-${String(month).padStart(2,"0")}-31`);
+
+    if (error) {
+      console.error(error);
+      return res.json({ reply: "❌ Erro ao gerar relatório." });
+    }
+
+    const total = data.reduce((s, d) => s + Number(d.amount), 0);
+    const byCat = {};
+    data.forEach(d => {
+      byCat[d.category] = (byCat[d.category] || 0) + Number(d.amount);
+    });
+
+    let text = `📊 Relatório de ${Object.keys(monthMap).find(k => monthMap[k] === month)}\n\n`;
+    text += `💰 Total gasto: R$ ${total.toFixed(2)}\n\n📂 Por categoria:\n`;
+    for (const c in byCat) {
+      text += `• ${c}: R$ ${byCat[c].toFixed(2)}\n`;
+    }
+
+    return res.json({ reply: text });
+  }
+
+  /* ===============================
+     3️⃣ CONVERSA
+  ================================ */
+  return res.json({
+    reply: "🔮 Posso registrar despesas ou gerar relatórios mensais. O que deseja?"
+  });
 });
 
 /* ===============================
