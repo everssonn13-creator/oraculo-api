@@ -33,12 +33,8 @@ app.use((req, res, next) => {
 const memory = {};
 /*
 memory[userId] = {
-  pendingExpense: {
-    descricao,
-    valor,
-    categoria,
-    data
-  }
+  pendingExpense: { descricao, valor, categoria, data },
+  awaitingConfirmation: false
 }
 */
 
@@ -63,14 +59,15 @@ const normalizeToISODate = (input) => {
   return null;
 };
 
-const resolveRelativeDate = (text) => {
-  const now = new Date();
+const resolveRelativeDate = (text = "") => {
+  const t = text.toLowerCase();
 
-  if (text.includes("hoje")) return todayISO();
+  if (t.includes("hoje")) return todayISO();
 
-  if (text.includes("amanhã")) {
-    now.setDate(now.getDate() + 1);
-    return now.toISOString().split("T")[0];
+  if (t.includes("amanhã")) {
+    const d = new Date();
+    d.setDate(d.getDate() + 1);
+    return d.toISOString().split("T")[0];
   }
 
   return null;
@@ -80,22 +77,26 @@ const resolveRelativeDate = (text) => {
    CATEGORIAS (ALINHADAS AO APP)
 ================================ */
 const CATEGORIES = [
-  { id: "moradia", name: "Moradia", keywords: ["aluguel", "condominio", "iptu", "luz", "agua", "internet", "gas"] },
-  { id: "alimentacao", name: "Alimentação", keywords: ["mercado", "supermercado", "lanche", "comida", "restaurante", "padaria"] },
-   { id: "compras", name: "Compras", keywords: ["tenis", "roupa", "bicicleta", "notebook", "eletronico"] },
-  { id: "transporte", name: "Transporte", keywords: ["uber", "99", "taxi", "onibus", "metro", "gasolina", "combustivel"] },
-  { id: "saude", name: "Saúde", keywords: ["farmacia", "medico", "dentista", "remedio"] },
-  { id: "educacao", name: "Educação", keywords: ["curso", "faculdade", "livro"] },
-  { id: "lazer", name: "Lazer", keywords: ["cinema", "show", "bar", "viagem"] },
-  { id: "assinaturas", name: "Assinaturas", keywords: ["netflix", "spotify", "assinatura", "plano"] },
-  { id: "pets", name: "Pets", keywords: ["pet", "racao", "veterinario"] },
-  { id: "presentes", name: "Presentes", keywords: ["presente", "aniversario"] },
-  { id: "dividas", name: "Dívidas", keywords: ["emprestimo", "financiamento", "divida", "parcela"] },
-  { id: "investimentos", name: "Investimentos", keywords: ["acao", "investimento", "fundo", "cripto"] }
+  { name: "Moradia", keywords: ["aluguel", "condominio", "iptu", "luz", "agua", "internet", "gas"] },
+  { name: "Alimentação", keywords: ["mercado", "supermercado", "lanche", "comida", "restaurante", "padaria"] },
+  { name: "Compras", keywords: ["tenis", "roupa", "bicicleta", "notebook", "eletronico"] },
+  { name: "Transporte", keywords: ["uber", "99", "taxi", "onibus", "metro", "gasolina", "combustivel", "abasteci"] },
+  { name: "Saúde", keywords: ["farmacia", "medico", "dentista", "remedio"] },
+  { name: "Educação", keywords: ["curso", "faculdade", "livro"] },
+  { name: "Lazer", keywords: ["cinema", "show", "bar", "viagem"] },
+  { name: "Assinaturas", keywords: ["netflix", "spotify", "assinatura", "plano"] },
+  { name: "Pets", keywords: ["pet", "racao", "veterinario"] },
+  { name: "Presentes", keywords: ["presente", "aniversario"] },
+  { name: "Dívidas", keywords: ["emprestimo", "financiamento", "divida", "parcela"] },
+  { name: "Investimentos", keywords: ["acao", "investimento", "fundo", "cripto"] }
 ];
 
 const classifyCategory = (text = "") => {
-  const t = text.toLowerCase();
+  const t = text
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
+
   for (const c of CATEGORIES) {
     if (c.keywords.some(k => t.includes(k))) return c.name;
   }
@@ -119,8 +120,53 @@ app.post("/oraculo", async (req, res) => {
       return res.json({ reply: "⚠️ Não consegui identificar seu usuário." });
     }
 
-    if (!memory[user_id]) memory[user_id] = { pendingExpense: {} };
+    if (!memory[user_id]) {
+      memory[user_id] = {
+        pendingExpense: {},
+        awaitingConfirmation: false
+      };
+    }
+
     const pending = memory[user_id].pendingExpense;
+
+    /* ===============================
+       CONFIRMAÇÃO ("SIM")
+    ================================ */
+    const confirmationText = message.toLowerCase().trim();
+    const isConfirmation =
+      confirmationText === "sim" ||
+      confirmationText === "ok" ||
+      confirmationText === "confirmar" ||
+      confirmationText.startsWith("sim") ||
+      confirmationText.includes("pode") ||
+      confirmationText.includes("confirm");
+
+    if (memory[user_id].awaitingConfirmation && isConfirmation) {
+      const { descricao, valor, categoria, data } = pending;
+
+      const { error } = await supabase.from("despesas").insert({
+        user_id,
+        description: descricao,
+        amount: valor,
+        category: categoria,
+        expense_date: data,
+        data_vencimento: data,
+        status: "pendente",
+        expense_type: "Variável"
+      });
+
+      if (error) {
+        console.error(error);
+        return res.json({ reply: "❌ Erro ao salvar a despesa." });
+      }
+
+      memory[user_id].pendingExpense = {};
+      memory[user_id].awaitingConfirmation = false;
+
+      return res.json({
+        reply: "✅ Despesa registrada com sucesso! Deseja registrar outra?"
+      });
+    }
 
     /* ===============================
        OPENAI
@@ -140,22 +186,21 @@ app.post("/oraculo", async (req, res) => {
 Você é o ORÁCULO FINANCEIRO 🔮
 
 PERSONALIDADE:
-Sábio, humano, claro, empático e inteligente. Fala como um mentor financeiro moderno.
-Nunca é robótico. Nunca inventa dados.
+Sábio, empático, humano e claro. Fala como um mentor financeiro moderno.
+Nunca inventa dados. Nunca pergunta o que já sabe.
 
 OBJETIVO:
-Interpretar mensagens financeiras livres e registrar despesas corretamente.
+Interpretar mensagens livres sobre despesas e ajudar a registrá-las corretamente.
 
 REGRAS:
 - Extraia: descrição, valor, data, categoria
 - Datas aceitas: hoje, amanhã, DD/MM/YYYY, YYYY-MM-DD
 - Se faltar algo, pergunte APENAS o que falta
-- Categorias válidas:
-Moradia, Alimentação, Transporte, Saúde, Educação, Lazer, Compras, Assinaturas, Pets, Presentes, Dívidas, Investimentos, Outros
+- Seja direto, humano e prestativo
 
 FORMATO DE SAÍDA (JSON PURO):
 {
-  "acao": "RESPONDER | COLETAR_DADO | REGISTRAR_DESPESA",
+  "acao": "RESPONDER | COLETAR_DADO",
   "dados": {
     "descricao": "",
     "valor": null,
@@ -171,16 +216,16 @@ FORMATO DE SAÍDA (JSON PURO):
       })
     });
 
-    const data = await ai.json();
+    const dataAI = await ai.json();
     let raw = null;
 
-    for (const o of data.output || []) {
+    for (const o of dataAI.output || []) {
       for (const c of o.content || []) {
         if (c.type === "output_text") raw = c.text;
       }
     }
 
-    if (!raw) return res.json({ reply: "⚠️ Não consegui interpretar." });
+    if (!raw) return res.json({ reply: "⚠️ Não consegui interpretar sua mensagem." });
 
     const action = JSON.parse(raw);
     const d = action.dados || {};
@@ -214,28 +259,19 @@ FORMATO DE SAÍDA (JSON PURO):
     }
 
     /* ===============================
-       SALVAR NO SUPABASE
+       PEDIR CONFIRMAÇÃO
     ================================ */
-    const { error } = await supabase.from("despesas").insert({
-      user_id,
-      description: pending.descricao,
-      amount: pending.valor,
-      category: pending.categoria,
-      expense_date: pending.data,
-      data_vencimento: pending.data,
-      status: "pendente",
-      expense_type: "Variável"
-    });
-
-    if (error) {
-      console.error(error);
-      return res.json({ reply: "❌ Erro ao salvar a despesa." });
-    }
-
-    memory[user_id].pendingExpense = {};
+    memory[user_id].awaitingConfirmation = true;
 
     return res.json({
-      reply: "✅ Despesa registrada com sucesso! Deseja registrar outra?"
+      reply: `🔮 Posso registrar assim?
+
+Descrição: ${pending.descricao}
+Valor: R$ ${pending.valor}
+Categoria: ${pending.categoria}
+Data: ${pending.data}
+
+Responda **"sim"** para confirmar ou diga o que deseja ajustar.`
     });
 
   } catch (err) {
