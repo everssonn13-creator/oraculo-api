@@ -17,26 +17,20 @@ const app = express();
 app.use(express.json());
 
 /* ===============================
-   CORS (CORRETO E DEFINITIVO)
+   CORS (LIBERADO)
 ================================ */
 app.use((req, res, next) => {
-  res.header("Access-Control-Allow-Origin", "https://oraculofinanceiro.com");
-  res.header("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
-  res.header(
-    "Access-Control-Allow-Headers",
-    "Content-Type, Authorization"
-  );
-
-  if (req.method === "OPTIONS") {
-    return res.sendStatus(200);
-  }
-
+  res.setHeader("Access-Control-Allow-Origin", "*");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
+  res.setHeader("Access-Control-Allow-Methods", "POST, GET, OPTIONS");
+  if (req.method === "OPTIONS") return res.sendStatus(200);
   next();
 });
 
 /* ===============================
-   MEMÓRIA EM RAM (por usuário)
+   MEMÓRIA CURTA (RAM)
 ================================ */
+const memory = {};
 /*
 memory[userId] = {
   pendingExpense: {
@@ -47,91 +41,72 @@ memory[userId] = {
   }
 }
 */
-const memory = {};
 
 /* ===============================
-   UTIL – DATAS (SEM date-fns)
+   UTIL — DATAS
 ================================ */
-const today = () => {
-  const d = new Date();
-  return d.toISOString().split("T")[0];
-};
+const todayISO = () => new Date().toISOString().split("T")[0];
 
-const tomorrow = () => {
-  const d = new Date();
-  d.setDate(d.getDate() + 1);
-  return d.toISOString().split("T")[0];
-};
+const normalizeToISODate = (input) => {
+  if (!input) return null;
 
-const parseDateFromText = (text) => {
-  const lower = text.toLowerCase();
-
-  if (lower.includes("hoje")) return today();
-  if (lower.includes("amanhã")) return tomorrow();
+  // yyyy-mm-dd
+  if (/^\d{4}-\d{2}-\d{2}$/.test(input)) return input;
 
   // dd/mm/yyyy
-  const match = lower.match(/(\d{2})\/(\d{2})\/(\d{4})/);
-  if (match) {
-    const [_, d, m, y] = match;
+  const br = input.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+  if (br) {
+    const [, d, m, y] = br;
     return `${y}-${m}-${d}`;
   }
 
-  // "dia 5 do próximo mês"
-  const nextMonthMatch = lower.match(/dia\s+(\d{1,2})\s+do\s+pr[oó]ximo\s+m[eê]s/);
-  if (nextMonthMatch) {
-    const day = Number(nextMonthMatch[1]);
-    const d = new Date();
-    d.setMonth(d.getMonth() + 1);
-    d.setDate(day);
-    return d.toISOString().split("T")[0];
+  return null;
+};
+
+const resolveRelativeDate = (text) => {
+  const now = new Date();
+
+  if (text.includes("hoje")) return todayISO();
+
+  if (text.includes("amanhã")) {
+    now.setDate(now.getDate() + 1);
+    return now.toISOString().split("T")[0];
   }
 
   return null;
 };
 
 /* ===============================
-   CATEGORIAS (ESPELHO DO APP)
+   CATEGORIAS (ALINHADAS AO APP)
 ================================ */
 const CATEGORIES = [
-  "Moradia",
-  "Alimentação",
-  "Transporte",
-  "Saúde",
-  "Educação",
-  "Lazer",
-  "Compras",
-  "Assinaturas",
-  "Pets",
-  "Presentes",
-  "Dívidas",
-  "Investimentos",
-  "Outros"
+  { id: "moradia", name: "Moradia", keywords: ["aluguel", "condominio", "iptu", "luz", "agua", "internet", "gas"] },
+  { id: "alimentacao", name: "Alimentação", keywords: ["mercado", "supermercado", "lanche", "comida", "restaurante", "padaria"] },
+  { id: "transporte", name: "Transporte", keywords: ["uber", "99", "taxi", "onibus", "metro", "gasolina", "combustivel"] },
+  { id: "saude", name: "Saúde", keywords: ["farmacia", "medico", "dentista", "remedio"] },
+  { id: "educacao", name: "Educação", keywords: ["curso", "faculdade", "livro"] },
+  { id: "lazer", name: "Lazer", keywords: ["cinema", "show", "bar", "viagem"] },
+  { id: "compras", name: "Compras", keywords: ["tenis", "roupa", "bicicleta", "notebook", "eletronico"] },
+  { id: "assinaturas", name: "Assinaturas", keywords: ["netflix", "spotify", "assinatura", "plano"] },
+  { id: "pets", name: "Pets", keywords: ["pet", "racao", "veterinario"] },
+  { id: "presentes", name: "Presentes", keywords: ["presente", "aniversario"] },
+  { id: "dividas", name: "Dívidas", keywords: ["emprestimo", "financiamento", "divida", "parcela"] },
+  { id: "investimentos", name: "Investimentos", keywords: ["acao", "investimento", "fundo", "cripto"] }
 ];
 
-const autoCategoryFromText = (text) => {
+const classifyCategory = (text = "") => {
   const t = text.toLowerCase();
-
-  if (t.match(/aluguel|condom|iptu|luz|água|internet|g[aá]s/)) return "Moradia";
-  if (t.match(/mercado|supermercado|lanche|comida|padaria|feira/)) return "Alimentação";
-  if (t.match(/uber|99|gasolina|combust[ií]vel|metr[oô]|ônibus/)) return "Transporte";
-  if (t.match(/farm[aá]cia|m[eé]dico|dentista|exame|rem[eé]dio/)) return "Saúde";
-  if (t.match(/curso|faculdade|livro|educa[cç][aã]o/)) return "Educação";
-  if (t.match(/cinema|bar|restaurante|viagem|show/)) return "Lazer";
-  if (t.match(/tenis|roupa|sapato|notebook|celular|bicicleta/)) return "Compras";
-  if (t.match(/netflix|spotify|assinatura|plano/)) return "Assinaturas";
-  if (t.match(/ra[cç][aã]o|pet|veterin[aá]rio/)) return "Pets";
-  if (t.match(/presente|anivers[aá]rio|natal/)) return "Presentes";
-  if (t.match(/empr[eé]stimo|financiamento|d[ií]vida|parcela/)) return "Dívidas";
-  if (t.match(/a[cç][aã]o|fundo|cripto|invest/)) return "Investimentos";
-
-  return null;
+  for (const c of CATEGORIES) {
+    if (c.keywords.some(k => t.includes(k))) return c.name;
+  }
+  return "Outros";
 };
 
 /* ===============================
    HEALTH
 ================================ */
 app.get("/", (_, res) => {
-  res.send("🔮 Oráculo Financeiro desperto e observando.");
+  res.send("🔮 Oráculo Financeiro ativo e vigilante.");
 });
 
 /* ===============================
@@ -141,7 +116,7 @@ app.post("/oraculo", async (req, res) => {
   try {
     const { message, user_id } = req.body;
     if (!message || !user_id) {
-      return res.json({ reply: "Preciso saber quem está falando comigo." });
+      return res.json({ reply: "⚠️ Não consegui identificar seu usuário." });
     }
 
     if (!memory[user_id]) memory[user_id] = { pendingExpense: {} };
@@ -162,28 +137,21 @@ app.post("/oraculo", async (req, res) => {
           {
             role: "system",
             content: `
-Você é o ORÁCULO FINANCEIRO 🔮.
+Você é o ORÁCULO FINANCEIRO 🔮
 
 PERSONALIDADE:
-- Fala como um mentor sábio, humano e acessível
-- Tom amigável, empático e inteligente
-- Ajuda o usuário a organizar a vida financeira sem julgar
+Sábio, humano, claro, empático e inteligente. Fala como um mentor financeiro moderno.
+Nunca é robótico. Nunca inventa dados.
 
 OBJETIVO:
-- Conversar naturalmente
-- Identificar despesas
-- Coletar: descrição, valor, categoria e data
-- Nunca inventar dados
-- Perguntar apenas o que estiver faltando
+Interpretar mensagens financeiras livres e registrar despesas corretamente.
 
-CATEGORIAS VÁLIDAS:
-${CATEGORIES.join(", ")}
-
-DATAS:
-- "hoje" = data atual
-- "amanhã" = amanhã
-- datas no formato DD/MM/AAAA
-- "dia X do próximo mês"
+REGRAS:
+- Extraia: descrição, valor, data, categoria
+- Datas aceitas: hoje, amanhã, DD/MM/YYYY, YYYY-MM-DD
+- Se faltar algo, pergunte APENAS o que falta
+- Categorias válidas:
+Moradia, Alimentação, Transporte, Saúde, Educação, Lazer, Compras, Assinaturas, Pets, Presentes, Dívidas, Investimentos, Outros
 
 FORMATO DE SAÍDA (JSON PURO):
 {
@@ -203,43 +171,37 @@ FORMATO DE SAÍDA (JSON PURO):
       })
     });
 
-    const aiData = await ai.json();
+    const data = await ai.json();
     let raw = null;
 
-    for (const o of aiData.output || []) {
+    for (const o of data.output || []) {
       for (const c of o.content || []) {
         if (c.type === "output_text") raw = c.text;
       }
     }
 
-    if (!raw) {
-      return res.json({ reply: "Não consegui interpretar isso agora." });
-    }
+    if (!raw) return res.json({ reply: "⚠️ Não consegui interpretar." });
 
     const action = JSON.parse(raw);
     const d = action.dados || {};
 
-    /* ===============================
-       MEMÓRIA
-    ================================ */
     if (d.descricao) pending.descricao = d.descricao;
     if (d.valor) pending.valor = d.valor;
+
     if (d.categoria) pending.categoria = d.categoria;
-
     if (!pending.categoria && pending.descricao) {
-      pending.categoria = autoCategoryFromText(pending.descricao);
+      pending.categoria = classifyCategory(pending.descricao);
     }
 
-    if (d.data) pending.data = d.data;
-    if (!pending.data) {
-      const parsed = parseDateFromText(message);
-      if (parsed) pending.data = parsed;
+    if (d.data) {
+      pending.data =
+        normalizeToISODate(d.data) ||
+        resolveRelativeDate(d.data) ||
+        pending.data;
     }
-    if (!pending.data) pending.data = today();
 
-    /* ===============================
-       VALIDAÇÃO
-    ================================ */
+    if (!pending.data) pending.data = todayISO();
+
     const missing = [];
     if (!pending.descricao) missing.push("descrição");
     if (!pending.valor) missing.push("valor");
@@ -247,9 +209,7 @@ FORMATO DE SAÍDA (JSON PURO):
 
     if (missing.length) {
       return res.json({
-        reply:
-          action.mensagem_usuario ||
-          `Só preciso confirmar: ${missing.join(", ")}.`
+        reply: action.mensagem_usuario || `Preciso confirmar: ${missing.join(", ")}.`
       });
     }
 
@@ -262,24 +222,26 @@ FORMATO DE SAÍDA (JSON PURO):
       amount: pending.valor,
       category: pending.categoria,
       expense_date: pending.data,
+      data_vencimento: pending.data,
       status: "pendente",
       expense_type: "Variável"
     });
 
     if (error) {
       console.error(error);
-      return res.json({ reply: "Tive um problema ao salvar isso." });
+      return res.json({ reply: "❌ Erro ao salvar a despesa." });
     }
 
     memory[user_id].pendingExpense = {};
 
     return res.json({
-      reply: "Despesa registrada com sucesso. Quer continuar?"
+      reply: "✅ Despesa registrada com sucesso! Deseja registrar outra?"
     });
+
   } catch (err) {
     console.error(err);
-    res.status(500).json({
-      reply: "O Oráculo teve uma turbulência momentânea."
+    return res.status(500).json({
+      reply: "⚠️ O Oráculo teve uma visão turva por um instante."
     });
   }
 });
