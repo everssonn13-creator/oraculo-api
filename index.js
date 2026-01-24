@@ -27,34 +27,21 @@ app.use((req, res, next) => {
 app.options("*", (_, res) => res.sendStatus(200));
 
 /* ===============================
-   MEMÓRIA CURTA (POR USUÁRIO)
+   MEMÓRIA CURTA
 ================================ */
 const memory = {};
-/*
-memory[userId] = {
-  pendingExpense: {
-    descricao,
-    valor,
-    categoria,
-    data
-  }
-}
-*/
 
 /* ===============================
    HEALTH
 ================================ */
 app.get("/", (_, res) => {
-  res.send("🔮 Oráculo Financeiro ativo e consciente.");
+  res.send("🔮 Oráculo Financeiro ativo.");
 });
 
 /* ===============================
    UTIL
 ================================ */
-const todayISO = () => {
-  const d = new Date();
-  return d.toISOString().split("T")[0];
-};
+const todayISO = () => new Date().toISOString().split("T")[0];
 
 /* ===============================
    ROTA PRINCIPAL
@@ -64,13 +51,10 @@ app.post("/oraculo", async (req, res) => {
     const { message, user_id } = req.body;
 
     if (!message || !user_id) {
-      return res.json({ reply: "⚠️ Não consegui identificar seu usuário." });
+      return res.json({ reply: "⚠️ Usuário não identificado." });
     }
 
-    if (!memory[user_id]) memory[user_id] = {};
-    if (!memory[user_id].pendingExpense)
-      memory[user_id].pendingExpense = {};
-
+    if (!memory[user_id]) memory[user_id] = { pendingExpense: {} };
     const pending = memory[user_id].pendingExpense;
 
     /* ===============================
@@ -88,68 +72,73 @@ app.post("/oraculo", async (req, res) => {
           {
             role: "system",
             content: `
-Você é o ORÁCULO FINANCEIRO 🔮, especialista em interpretar linguagem humana informal
-e converter em registros financeiros estruturados.
+Você é o ORÁCULO FINANCEIRO 🔮.
 
 ========================
-OBJETIVO
+MISSÃO
 ========================
-Identificar despesas descritas em linguagem natural e convertê-las
-em dados prontos para salvar no banco.
+Converter linguagem humana informal em registros financeiros EXATOS.
 
 ========================
-REGRAS FUNDAMENTAIS
+REGRA ABSOLUTA SOBRE DATAS
 ========================
-- Nunca invente valores.
-- Nunca invente datas.
-- Não repita perguntas já respondidas.
-- Pergunte SOMENTE o que estiver faltando.
-- Sempre normalize datas para YYYY-MM-DD.
-- Se nenhuma data for mencionada, use a data de hoje.
-- Nunca escreva texto fora do JSON.
+❗ SE o usuário mencionar QUALQUER referência temporal,
+VOCÊ DEVE calcular e retornar uma data REAL no formato YYYY-MM-DD.
+
+❗ NUNCA retorne data vaga.
+❗ NUNCA omita a data se houver referência temporal.
 
 ========================
-INTERPRETAÇÃO DE DATAS
+COMO CALCULAR DATAS
 ========================
-Converta expressões humanas em datas reais usando a data atual como referência.
+Considere HOJE como a data atual do sistema.
 
-Exemplos obrigatórios:
 - hoje → hoje
 - ontem → hoje - 1 dia
 - amanhã → hoje + 1 dia
-- sexta passada → última sexta antes de hoje
-- sexta retrasada → sexta da semana anterior à passada
-- segunda que vem → próxima segunda após hoje
-- dia 10 → dia 10 do mês atual (ou próximo se já passou)
-- 10 de janeiro de 2026 → 2026-01-10
-- semana passada → segunda-feira da semana anterior
-- mês passado → primeiro dia do mês anterior
 
-Se apenas o dia da semana for citado, use o mais próximo no passado.
+- sexta passada →
+  a sexta-feira imediatamente ANTERIOR à semana atual
+
+- sexta retrasada →
+  a sexta-feira DUAS semanas antes da atual
+
+- segunda que vem →
+  a próxima segunda-feira após hoje
+
+- dia 10 →
+  dia 10 do mês atual (ou do próximo mês se já passou)
+
+- 10 de janeiro de 2026 →
+  2026-01-10
+
+⚠️ Exemplos OBRIGATÓRIOS:
+"bicicleta 1000 sexta passada"
+→ data DEVE ser algo como: "2026-01-16" (exemplo)
 
 ========================
-CATEGORIAS (AUTO)
+CATEGORIAS AUTOMÁTICAS
 ========================
-- Alimentação: lanche, mercado, comida, restaurante, pizza
-- Transporte: uber, taxi, 99, gasolina, combustível
-- Compras: tênis, roupa, notebook, compras
+- Alimentação: mercado, lanche, comida, restaurante
+- Transporte: uber, taxi, gasolina, combustível
+- Compras: bicicleta, notebook, roupa, tênis
 - Moradia: aluguel, condomínio
-- Contas: internet, celular, luz, água
+- Contas: luz, água, internet
 - Lazer: cinema, bar, show
 - Saúde: médico, farmácia
 
-Pergunte a categoria SOMENTE se não for possível inferir.
+Só pergunte categoria se NÃO for possível inferir.
 
 ========================
-FORMATO DE SAÍDA (JSON)
+FORMATO DE SAÍDA (JSON PURO)
 ========================
 {
   "acao": "RESPONDER" | "COLETAR_DADO" | "REGISTRAR_DESPESA",
   "dados": {
-    "descricao": null | string,
-    "valor": null | number,
-    "categoria": null | string,
-    "data": null | "YYYY-MM-DD"
+    "descricao": string | null,
+    "valor": number | null,
+    "categoria": string | null,
+    "data": "YYYY-MM-DD" | null
   },
   "mensagem_usuario": string
 }
@@ -173,15 +162,12 @@ FORMATO DE SAÍDA (JSON)
     }
 
     if (!raw) {
-      return res.json({ reply: "⚠️ Não consegui interpretar sua mensagem." });
+      return res.json({ reply: "⚠️ Não consegui entender." });
     }
 
     const action = JSON.parse(raw);
     const d = action.dados || {};
 
-    /* ===============================
-       ATUALIZA MEMÓRIA
-    ================================ */
     if (d.descricao) pending.descricao = d.descricao;
     if (d.valor) pending.valor = d.valor;
     if (d.categoria) pending.categoria = d.categoria;
@@ -189,9 +175,6 @@ FORMATO DE SAÍDA (JSON)
 
     if (!pending.data) pending.data = todayISO();
 
-    /* ===============================
-       VERIFICA FALTANTES
-    ================================ */
     const missing = [];
     if (!pending.descricao) missing.push("descrição");
     if (!pending.valor) missing.push("valor");
@@ -199,15 +182,10 @@ FORMATO DE SAÍDA (JSON)
 
     if (missing.length > 0) {
       return res.json({
-        reply:
-          action.mensagem_usuario ||
-          `Preciso apenas confirmar: ${missing.join(", ")}.`
+        reply: action.mensagem_usuario || `Confirme: ${missing.join(", ")}.`
       });
     }
 
-    /* ===============================
-       REGISTRA DESPESA
-    ================================ */
     const { error } = await supabase.from("despesas").insert({
       user_id,
       description: pending.descricao,
@@ -219,10 +197,7 @@ FORMATO DE SAÍDA (JSON)
     });
 
     if (error) {
-      console.error("❌ Supabase:", error);
-      return res.json({
-        reply: "❌ Ocorreu um erro ao salvar a despesa."
-      });
+      return res.json({ reply: "❌ Erro ao salvar despesa." });
     }
 
     memory[user_id].pendingExpense = {};
@@ -232,10 +207,8 @@ FORMATO DE SAÍDA (JSON)
     });
 
   } catch (err) {
-    console.error("🔥 Erro:", err);
-    return res.status(500).json({
-      reply: "⚠️ O Oráculo teve uma falha momentânea."
-    });
+    console.error(err);
+    return res.status(500).json({ reply: "⚠️ Falha do Oráculo." });
   }
 });
 
