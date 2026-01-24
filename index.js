@@ -28,15 +28,9 @@ app.use((req, res, next) => {
 });
 
 /* ===============================
-   MEMÓRIA EM RAM
+   MEMÓRIA CURTA
 ================================ */
 const memory = {};
-/*
-memory[user_id] = {
-  expenses: [],
-  awaitingConfirmation: false
-}
-*/
 
 /* ===============================
    DATAS
@@ -56,9 +50,6 @@ const resolveDate = (text) => {
   const br = t.match(/(\d{2})\/(\d{2})\/(\d{4})/);
   if (br) return `${br[3]}-${br[2]}-${br[1]}`;
 
-  const iso = t.match(/\d{4}-\d{2}-\d{2}/);
-  if (iso) return iso[0];
-
   return todayISO();
 };
 
@@ -66,12 +57,11 @@ const resolveDate = (text) => {
    CATEGORIAS
 ================================ */
 const CATEGORIES = [
-  { name: "Transporte", keywords: ["uber", "99", "taxi", "ônibus", "metro", "gasolina", "combustivel"] },
+  { name: "Transporte", keywords: ["uber", "99", "taxi", "ônibus", "metro", "gasolina"] },
   { name: "Alimentação", keywords: ["lanche", "marmita", "comida", "restaurante", "mercado"] },
-  { name: "Compras", keywords: ["mochila", "roupa", "tenis", "bicicleta", "notebook"] },
-  { name: "Moradia", keywords: ["aluguel", "condominio", "iptu", "luz", "agua", "internet"] },
-  { name: "Saúde", keywords: ["farmacia", "remedio", "medico"] },
-  { name: "Educação", keywords: ["curso", "faculdade", "livro"] }
+  { name: "Compras", keywords: ["roupa", "tenis", "notebook"] },
+  { name: "Moradia", keywords: ["aluguel", "condominio", "luz", "agua", "internet"] },
+  { name: "Saúde", keywords: ["farmacia", "remedio", "medico"] }
 ];
 
 const classifyCategory = (text) => {
@@ -83,23 +73,23 @@ const classifyCategory = (text) => {
 };
 
 /* ===============================
-   IDENTIFICADORES DE INTENÇÃO
+   INTENÇÕES
 ================================ */
 const isConfirmation = (msg) =>
   ["sim", "confirmar", "ok", "pode", "isso"].includes(msg.trim().toLowerCase());
 
-const isReportRequest = (msg) =>
-  msg.toLowerCase().includes("relatório");
+/* ===============================
+   EXTRAÇÃO SEM IA (CRÍTICO)
+================================ */
+const extractExpenseSimple = (text) => {
+  // gasolina 200 | lanche 22 | mercado 150
+  const match = text.match(/(.+?)\s+(\d+[.,]?\d*)/i);
+  if (!match) return null;
 
-const extractMonth = (msg) => {
-  const months = {
-    janeiro: 1, fevereiro: 2, março: 3, abril: 4, maio: 5, junho: 6,
-    julho: 7, agosto: 8, setembro: 9, outubro: 10, novembro: 11, dezembro: 12
+  return {
+    descricao: match[1].trim(),
+    valor: Number(match[2].replace(",", "."))
   };
-  for (const m in months) {
-    if (msg.toLowerCase().includes(m)) return months[m];
-  }
-  return null;
 };
 
 /* ===============================
@@ -109,7 +99,7 @@ app.post("/oraculo", async (req, res) => {
   try {
     const { message, user_id } = req.body;
     if (!message || !user_id) {
-      return res.json({ reply: "⚠️ Não consegui identificar o usuário." });
+      return res.json({ reply: "⚠️ Usuário não identificado." });
     }
 
     if (!memory[user_id]) {
@@ -129,93 +119,69 @@ app.post("/oraculo", async (req, res) => {
           expense_date: e.date,
           data_vencimento: e.date,
           status: "pendente",
-          expense_type: "Variável"
+          expense_type: "Variável",
+          is_recurring: false
         });
       }
 
       memory[user_id] = { expenses: [], awaitingConfirmation: false };
-
-      return res.json({ reply: "✅ Despesas registradas com sucesso." });
+      return res.json({ reply: "✅ Despesa registrada com sucesso." });
     }
 
     /* ===============================
-       RELATÓRIO
+       EXTRAÇÃO (SEM IA PRIMEIRO)
     ================================ */
-    if (isReportRequest(message)) {
-      const month = extractMonth(message);
-      if (!month) {
-        return res.json({ reply: "📅 Informe o mês desejado (ex: janeiro, fevereiro)." });
-      }
+    let despesas = [];
+    const simple = extractExpenseSimple(message);
 
-      const year = new Date().getFullYear();
-
-      const { data, error } = await supabase
-        .from("despesas")
-        .select("amount, category, status")
-        .eq("user_id", user_id)
-        .gte("expense_date", `${year}-${String(month).padStart(2, "0")}-01`)
-        .lte("expense_date", `${year}-${String(month).padStart(2, "0")}-31`);
-
-      if (error) return res.json({ reply: "❌ Erro ao gerar relatório." });
-
-      let total = 0;
-      const byCategory = {};
-
-      data.forEach(d => {
-        total += Number(d.amount);
-        byCategory[d.category] = (byCategory[d.category] || 0) + Number(d.amount);
-      });
-
-      let text = `📊 **Relatório de ${message}**\n\n💰 Total gasto: R$ ${total.toFixed(2)}\n\n`;
-      for (const c in byCategory) {
-        text += `• ${c}: R$ ${byCategory[c].toFixed(2)}\n`;
-      }
-
-      return res.json({ reply: text });
+    if (simple && simple.valor > 0) {
+      despesas.push(simple);
     }
 
     /* ===============================
-       IA – EXTRAÇÃO DE DESPESAS
+       FALLBACK IA (SÓ SE PRECISAR)
     ================================ */
-    const ai = await fetch("https://api.openai.com/v1/responses", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${process.env.OPENAI_API_KEY}`
-      },
-      body: JSON.stringify({
-        model: "gpt-5-mini",
-        input: [
-          {
-            role: "system",
-            content: `
-Extraia despesas do texto.
-Retorne JSON:
+    if (!despesas.length) {
+      const ai = await fetch("https://api.openai.com/v1/responses", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: `Bearer ${process.env.OPENAI_API_KEY}`
+        },
+        body: JSON.stringify({
+          model: "gpt-5-mini",
+          input: `Extraia despesas e retorne JSON no formato:
 {
   "despesas": [
-    { "descricao": "", "valor": 0 }
+    { "descricao": "string", "valor": number }
   ]
-}`
-          },
-          { role: "user", content: message }
-        ]
-      })
-    });
+}
+Texto: ${message}`
+        })
+      });
 
-    const aiData = await ai.json();
-    const raw = aiData.output?.[0]?.content?.[0]?.text;
-    if (!raw) return res.json({ reply: "⚠️ Não consegui entender a despesa." });
+      const aiData = await ai.json();
+      const text =
+        aiData.output_text ||
+        aiData.output?.[0]?.content?.[0]?.text;
 
-    const parsed = JSON.parse(raw);
-    if (!parsed.despesas || !parsed.despesas.length) {
-      return res.json({ reply: "⚠️ Nenhuma despesa válida identificada." });
+      if (text) {
+        try {
+          const parsed = JSON.parse(text);
+          if (parsed?.despesas?.length) despesas = parsed.despesas;
+        } catch {}
+      }
+    }
+
+    if (!despesas.length) {
+      return res.json({ reply: "⚠️ Não identifiquei nenhuma despesa válida." });
     }
 
     const date = resolveDate(message);
 
-    memory[user_id].expenses = parsed.despesas.map(d => ({
+    memory[user_id].expenses = despesas.map(d => ({
       description: d.descricao,
-      amount: d.valor,
+      amount: Number(d.valor),
       category: classifyCategory(d.descricao),
       date
     }));
@@ -224,17 +190,17 @@ Retorne JSON:
 
     let preview = "🧾 Posso registrar assim?\n\n";
     memory[user_id].expenses.forEach((e, i) => {
-      preview += `${i + 1}) ${e.description} — R$${e.amount} — ${e.category}\n`;
+      preview += `${i + 1}) ${e.description} — R$ ${e.amount} — ${e.category}\n`;
     });
 
-    preview += `\n📅 Data: ${date}\n\nResponda **"sim"** para confirmar.`;
+    preview += `\n📅 Data: ${date}\n\nResponda "sim" para confirmar.`;
 
     return res.json({ reply: preview });
 
   } catch (err) {
     console.error(err);
     return res.status(500).json({
-      reply: "⚠️ O Oráculo teve uma visão turva por um instante."
+      reply: "⚠️ O Oráculo teve uma visão turva."
     });
   }
 });
