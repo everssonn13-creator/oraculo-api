@@ -3,6 +3,15 @@ import fetch from "node-fetch";
 import { createClient } from "@supabase/supabase-js";
 
 /* ===============================
+   IMPORTA A LÓGICA REAL DO APP
+================================ */
+import {
+  EXPENSE_CATEGORIES,
+  classifyExpenseToCategory,
+  getCategoryByName
+} from "./src/constants/expenseCategories.js";
+
+/* ===============================
    SUPABASE
 ================================ */
 const supabase = createClient(
@@ -16,220 +25,237 @@ const supabase = createClient(
 const app = express();
 app.use(express.json());
 
-app.use((req, res, next) => {
+app.use((_, res, next) => {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
   res.setHeader("Access-Control-Allow-Methods", "POST, GET, OPTIONS");
   next();
 });
-app.options("*", (_, res) => res.sendStatus(200));
 
 /* ===============================
    MEMÓRIA CURTA (POR USUÁRIO)
 ================================ */
 const memory = {};
+/*
+memory[userId] = {
+  expense: {
+    description,
+    amount,
+    category,
+    date
+  }
+}
+*/
 
 /* ===============================
-   UTIL — DATAS (SEM LIB)
+   UTIL – DATAS (SEM LIB)
 ================================ */
-function startOfDay(date) {
-  const d = new Date(date);
+const today = () => {
+  const d = new Date();
   d.setHours(0, 0, 0, 0);
   return d;
-}
+};
 
-function resolveDate(text) {
-  if (!text) return null;
+const toISO = (date) => date.toISOString().split("T")[0];
 
-  const base = startOfDay(new Date());
+const parseDateFromText = (text) => {
   const lower = text.toLowerCase();
 
-  if (lower.includes("hoje")) return base;
-  if (lower.includes("ontem")) return new Date(base.setDate(base.getDate() - 1));
-  if (lower.includes("amanhã")) return new Date(base.setDate(base.getDate() + 1));
-
-  if (lower.includes("semana passada")) {
-    const d = new Date(base);
-    d.setDate(d.getDate() - 7);
+  if (lower.includes("hoje")) return today();
+  if (lower.includes("amanhã") || lower.includes("amanha")) {
+    const d = today();
+    d.setDate(d.getDate() + 1);
+    return d;
+  }
+  if (lower.includes("ontem")) {
+    const d = today();
+    d.setDate(d.getDate() - 1);
     return d;
   }
 
-  const weekdays = {
-    domingo: 0,
-    segunda: 1,
-    terça: 2,
-    quarta: 3,
-    quinta: 4,
-    sexta: 5,
-    sábado: 6,
-  };
-
-  for (const day in weekdays) {
-    if (lower.includes(day)) {
-      const target = weekdays[day];
-      const diff = (base.getDay() - target + 7) % 7 || 7;
-      return new Date(base.setDate(base.getDate() - diff));
-    }
+  // dd/mm/yyyy
+  const numeric = lower.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+  if (numeric) {
+    const [, day, month, year] = numeric;
+    return new Date(Number(year), Number(month) - 1, Number(day));
   }
 
-  if (/^\d{4}-\d{2}-\d{2}$/.test(text)) {
-    return new Date(text);
+  // "dia 5 do próximo mês"
+  const nextMonth = lower.match(/dia\s(\d{1,2}).*proximo mes/);
+  if (nextMonth) {
+    const d = today();
+    d.setMonth(d.getMonth() + 1);
+    d.setDate(Number(nextMonth[1]));
+    return d;
   }
 
   return null;
-}
-
-/* ===============================
-   CATEGORIAS E SUBCATEGORIAS
-================================ */
-const categoryMap = [
-  { keywords: ["uber", "99", "taxi", "gasolina", "combustível"], category: "Transporte" },
-  { keywords: ["mercado", "lanche", "almoço", "jantar", "restaurante"], category: "Alimentação" },
-  { keywords: ["notebook", "bicicleta", "tênis", "roupa", "sapato"], category: "Compras" },
-  { keywords: ["aluguel", "condomínio", "energia", "luz", "água"], category: "Moradia" },
-];
-
-function inferCategory(description) {
-  if (!description) return null;
-  const text = description.toLowerCase();
-  for (const c of categoryMap) {
-    if (c.keywords.some(k => text.includes(k))) {
-      return c.category;
-    }
-  }
-  return null;
-}
+};
 
 /* ===============================
    HEALTH
 ================================ */
 app.get("/", (_, res) => {
-  res.send("🔮 Oráculo Financeiro desperto.");
+  res.send("🔮 Oráculo Financeiro ativo.");
 });
 
 /* ===============================
-   ORÁCULO
+   ROTA PRINCIPAL
 ================================ */
 app.post("/oraculo", async (req, res) => {
   try {
     const { message, user_id } = req.body;
+
     if (!message || !user_id) {
       return res.json({ reply: "Não consegui identificar seu usuário." });
     }
 
-    if (!memory[user_id]) memory[user_id] = {};
-    if (!memory[user_id].pending) memory[user_id].pending = {};
+    if (!memory[user_id]) {
+      memory[user_id] = { expense: {} };
+    }
 
-    const pending = memory[user_id].pending;
+    const state = memory[user_id].expense;
 
     /* ===============================
-       OPENAI
+       IA – SYSTEM PROMPT
     ================================ */
-    const ai = await fetch("https://api.openai.com/v1/responses", {
+    const systemPrompt = `
+Você é o ORÁCULO FINANCEIRO 🔮
+
+PERSONALIDADE:
+- Tom humano, empático e claro
+- Levemente bem-humorado
+- Age como um mentor financeiro experiente
+- Nunca infantil
+- Nunca robótico
+
+OBJETIVO:
+Ajudar o usuário a registrar despesas corretamente.
+
+CATEGORIAS EXISTENTES (NUNCA INVENTAR OUTRAS):
+
+${EXPENSE_CATEGORIES.map(c => `- ${c.name}`).join("\n")}
+
+REGRAS IMPORTANTES:
+- Nunca crie categorias novas
+- Se reconhecer a categoria, NÃO pergunte
+- Só pergunte o que estiver faltando
+- Use memória da conversa
+- Datas possíveis:
+  hoje, amanhã, ontem,
+  dd/mm/yyyy,
+  "dia X do próximo mês"
+
+FORMATO DE SAÍDA OBRIGATÓRIO (JSON PURO):
+{
+  "acao": "RESPONDER | COLETAR | REGISTRAR",
+  "dados": {
+    "description": "",
+    "amount": null,
+    "category": "",
+    "dateText": ""
+  },
+  "mensagem": ""
+}
+`;
+
+    const aiResponse = await fetch("https://api.openai.com/v1/responses", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+        Authorization: `Bearer ${process.env.OPENAI_API_KEY}`
       },
       body: JSON.stringify({
         model: "gpt-5-mini",
         input: [
-          {
-            role: "system",
-            content: `
-Você é o ORÁCULO FINANCEIRO 🔮
-Um mestre em finanças pessoais, humano, inteligente e conversacional.
-
-Extraia da fala do usuário:
-- descrição
-- valor
-- expressão de data (ex: sexta passada)
-
-Retorne SOMENTE JSON:
-{
-  "descricao": "",
-  "valor": null,
-  "data": ""
-}
-`
-          },
+          { role: "system", content: systemPrompt },
           { role: "user", content: message }
         ]
       })
     });
 
-    const json = await ai.json();
-    let raw = null;
+    const data = await aiResponse.json();
 
-    for (const o of json.output || []) {
+    let raw;
+    for (const o of data.output || []) {
       for (const c of o.content || []) {
         if (c.type === "output_text") raw = c.text;
       }
     }
 
     if (!raw) {
-      return res.json({ reply: "Não consegui interpretar sua mensagem." });
+      return res.json({ reply: "Não consegui entender sua mensagem." });
     }
 
     const parsed = JSON.parse(raw);
+    const d = parsed.dados || {};
 
-    if (parsed.descricao) pending.descricao = parsed.descricao;
-    if (parsed.valor) pending.valor = parsed.valor;
-    if (parsed.data) pending.dataText = parsed.data;
+    /* ===============================
+       MEMÓRIA
+    ================================ */
+    if (d.description) state.description = d.description;
+    if (d.amount) state.amount = d.amount;
 
-    if (!pending.category && pending.descricao) {
-      pending.category = inferCategory(pending.descricao);
+    if (d.category) {
+      const cat = getCategoryByName(d.category);
+      state.category = cat.name;
     }
 
-    if (!pending.date && pending.dataText) {
-      const d = resolveDate(pending.dataText);
-      if (d) pending.date = d.toISOString();
+    if (d.dateText) {
+      const parsedDate = parseDateFromText(d.dateText);
+      if (parsedDate) state.date = parsedDate;
+    }
+
+    if (!state.date) state.date = today();
+
+    /* ===============================
+       AUTO CLASSIFICAÇÃO
+    ================================ */
+    if (!state.category && state.description) {
+      const auto = classifyExpenseToCategory(state.description);
+      if (auto.id !== "outros") {
+        state.category = auto.name;
+      }
     }
 
     /* ===============================
-       VALIDAR
+       VERIFICA FALTANTES
     ================================ */
     const missing = [];
-    if (!pending.descricao) missing.push("descrição");
-    if (!pending.valor) missing.push("valor");
-    if (!pending.category) missing.push("categoria");
+    if (!state.description) missing.push("descrição");
+    if (!state.amount) missing.push("valor");
+    if (!state.category) missing.push("categoria");
 
     if (missing.length > 0) {
       return res.json({
-        reply: `Só preciso confirmar: ${missing.join(", ")}.`
+        reply:
+          parsed.mensagem ||
+          `Só preciso confirmar: ${missing.join(", ")}.`
       });
     }
 
-    if (!pending.date) pending.date = new Date().toISOString();
-
     /* ===============================
-       SALVAR
+       REGISTRA
     ================================ */
-    const { error } = await supabase.from("despesas").insert({
+    await supabase.from("despesas").insert({
       user_id,
-      description: pending.descricao,
-      amount: pending.valor,
-      category: pending.category,
-      expense_date: pending.date,
-      data_vencimento: pending.date,
-      expense_type: "Variável",
-      status: "pendente"
+      description: state.description,
+      amount: state.amount,
+      category: state.category,
+      expense_date: toISO(state.date),
+      status: "pendente",
+      expense_type: "Variável"
     });
 
-    if (error) {
-      console.error(error);
-      return res.json({ reply: "Tive um problema ao salvar a despesa." });
-    }
-
-    memory[user_id].pending = {};
+    memory[user_id].expense = {};
 
     return res.json({
-      reply: "✅ Despesa registrada com sucesso! Quer adicionar outra?"
+      reply: "Despesa registrada com sucesso. Quer adicionar outra?"
     });
 
   } catch (err) {
     console.error(err);
-    return res.status(500).json({
+    res.status(500).json({
       reply: "O Oráculo teve uma falha momentânea."
     });
   }
@@ -240,5 +266,5 @@ Retorne SOMENTE JSON:
 ================================ */
 const PORT = process.env.PORT || 8080;
 app.listen(PORT, () => {
-  console.log("🔮 Oráculo ativo na porta " + PORT);
+  console.log("🔮 Oráculo Financeiro rodando na porta", PORT);
 });
