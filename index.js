@@ -16,7 +16,6 @@ const supabase = createClient(
 const app = express();
 app.use(express.json());
 
-// CORS
 app.use((req, res, next) => {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type");
@@ -27,31 +26,63 @@ app.use((req, res, next) => {
 app.options("*", (_, res) => res.sendStatus(200));
 
 /* ===============================
-   MEMÓRIA POR USUÁRIO (RAM)
+   MEMÓRIA CURTA (POR USUÁRIO)
 ================================ */
 const memory = {};
 /*
 memory[userId] = {
-  pendingExpense: {
+  expense: {
     descricao,
     valor,
     categoria,
-    data
+    expense_date
   }
 }
 */
 
 /* ===============================
-   HEALTH
-================================ */
-app.get("/", (_, res) => {
-  res.send("🔮 Oráculo Financeiro ativo e consciente.");
-});
-
-/* ===============================
    UTIL
 ================================ */
 const todayISO = () => new Date().toISOString().split("T")[0];
+
+const normalizeDate = (input) => {
+  if (!input) return todayISO();
+
+  // ISO direto
+  if (/^\d{4}-\d{2}-\d{2}$/.test(input)) return input;
+
+  const parsed = new Date(input);
+  if (!isNaN(parsed)) return parsed.toISOString().split("T")[0];
+
+  return todayISO();
+};
+
+const normalizeCategory = (raw) => {
+  if (!raw) return "Outros";
+
+  const text = raw.toLowerCase();
+
+  if (["lanche", "pizza", "comida", "almoço", "jantar"].some(w => text.includes(w)))
+    return "Alimentação";
+
+  if (["uber", "taxi", "gasolina", "combustível"].some(w => text.includes(w)))
+    return "Transporte";
+
+  if (["aluguel", "condomínio"].some(w => text.includes(w)))
+    return "Moradia";
+
+  if (["netflix", "spotify", "assinatura"].some(w => text.includes(w)))
+    return "Assinaturas";
+
+  return raw;
+};
+
+/* ===============================
+   HEALTH
+================================ */
+app.get("/", (_, res) => {
+  res.send("🔮 Oráculo Financeiro ativo e lúcido.");
+});
 
 /* ===============================
    ROTA PRINCIPAL
@@ -60,27 +91,24 @@ app.post("/oraculo", async (req, res) => {
   try {
     const { message, user_id } = req.body;
 
-    console.log("📩 Mensagem:", message);
-    console.log("👤 User:", user_id);
-
     if (!message || !user_id) {
       return res.json({ reply: "⚠️ Não consegui identificar seu usuário." });
     }
 
-    if (!memory[user_id]) memory[user_id] = {};
-    if (!memory[user_id].pendingExpense)
-      memory[user_id].pendingExpense = {};
+    if (!memory[user_id]) {
+      memory[user_id] = { expense: {} };
+    }
 
-    const pending = memory[user_id].pendingExpense;
+    const pending = memory[user_id].expense;
 
     /* ===============================
-       CHAMADA OPENAI
+       OPENAI
     ================================ */
     const response = await fetch("https://api.openai.com/v1/responses", {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
-        Authorization: `Bearer ${process.env.OPENAI_API_KEY}`,
+        Authorization: `Bearer ${process.env.OPENAI_API_KEY}`
       },
       body: JSON.stringify({
         model: "gpt-5-mini",
@@ -90,27 +118,25 @@ app.post("/oraculo", async (req, res) => {
             content: `
 Você é o Oráculo Financeiro 🔮.
 
-OBJETIVO:
-Conversar naturalmente com o usuário sobre finanças pessoais.
-Quando identificar uma despesa, ajude a registrar.
+Extraia dados de despesas a partir de linguagem natural.
 
-REGRAS IMPORTANTES:
-- Não repita perguntas já respondidas
-- Só pergunte o que estiver faltando
-- Use os dados já conhecidos
-- Nunca invente valores
-- Data padrão é hoje se não informada
+REGRAS:
+- NÃO invente valores
+- NÃO repita perguntas
+- Só peça o que faltar
+- Se a data não for dita, deixe em branco
 
-FORMATO DE SAÍDA (JSON):
+RESPONDA APENAS EM JSON:
+
 {
-  "acao": "RESPONDER | COLETAR_DADO | REGISTRAR_DESPESA",
+  "acao": "RESPONDER | REGISTRAR_DESPESA",
   "dados": {
     "descricao": "",
     "valor": null,
     "categoria": "",
-    "data": ""
+    "expense_date": ""
   },
-  "mensagem_usuario": ""
+  "mensagem": ""
 }
 `
           },
@@ -132,73 +158,64 @@ FORMATO DE SAÍDA (JSON):
     }
 
     if (!raw) {
-      return res.json({ reply: "⚠️ Não consegui interpretar sua mensagem." });
+      return res.json({ reply: "⚠️ Não consegui entender sua mensagem." });
     }
 
-    console.log("🧠 IA:", raw);
-
-    const action = JSON.parse(raw);
+    const parsed = JSON.parse(raw);
+    const d = parsed.dados || {};
 
     /* ===============================
-       ATUALIZA MEMÓRIA
+       MEMÓRIA
     ================================ */
-    const d = action.dados || {};
-
     if (d.descricao) pending.descricao = d.descricao;
     if (d.valor) pending.valor = d.valor;
-    if (d.categoria) pending.categoria = d.categoria;
-    if (d.data) pending.data = d.data;
+    if (d.categoria) pending.categoria = normalizeCategory(d.categoria);
+    if (d.expense_date) pending.expense_date = normalizeDate(d.expense_date);
 
-    if (!pending.data) pending.data = todayISO();
+    if (!pending.expense_date) pending.expense_date = todayISO();
 
     /* ===============================
-       VERIFICA O QUE FALTA
+       CHECAR FALTANTES
     ================================ */
     const missing = [];
     if (!pending.descricao) missing.push("descrição");
     if (!pending.valor) missing.push("valor");
     if (!pending.categoria) missing.push("categoria");
 
-    /* ===============================
-       PEDIR SOMENTE O QUE FALTA
-    ================================ */
     if (missing.length > 0) {
       return res.json({
         reply:
-          action.mensagem_usuario ||
+          parsed.mensagem ||
           `Preciso apenas confirmar: ${missing.join(", ")}.`
       });
     }
 
     /* ===============================
-       REGISTRAR DESPESA
+       INSERT SUPABASE
     ================================ */
     const { error } = await supabase.from("despesas").insert({
       user_id,
       description: pending.descricao,
       amount: pending.valor,
       category: pending.categoria,
-      expense_date: pending.data,
+      expense_date: pending.expense_date,
       expense_type: "Variável",
       status: "pendente"
     });
 
     if (error) {
-      console.error("❌ Supabase:", error);
-      return res.json({
-        reply: "❌ Tive um problema ao salvar a despesa."
-      });
+      console.error(error);
+      return res.json({ reply: "❌ Erro ao salvar a despesa." });
     }
 
-    // Limpa memória
-    memory[user_id].pendingExpense = {};
+    memory[user_id].expense = {};
 
     return res.json({
-      reply: "✅ Despesa registrada com sucesso! Quer registrar outra?"
+      reply: "✅ Despesa registrada com sucesso. Quer adicionar outra?"
     });
 
   } catch (err) {
-    console.error("🔥 Erro:", err);
+    console.error(err);
     res.status(500).json({
       reply: "⚠️ O Oráculo teve uma falha momentânea."
     });
