@@ -17,7 +17,7 @@ const app = express();
 app.use(express.json());
 
 /* ===============================
-   CORS (LIBERADO)
+   CORS
 ================================ */
 app.use((req, res, next) => {
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -31,11 +31,9 @@ app.use((req, res, next) => {
    MEMÓRIA CURTA (RAM)
 ================================ */
 const memory = {};
-
 /*
 memory[userId] = {
-  expenses: [],
-  awaitingConfirmation: false
+  pendingExpenses: []
 }
 */
 
@@ -44,61 +42,44 @@ memory[userId] = {
 ================================ */
 const todayISO = () => new Date().toISOString().split("T")[0];
 
-const normalizeToISODate = (input) => {
-  if (!input) return null;
+const normalizeDate = (input = "") => {
+  if (!input) return todayISO();
 
+  // yyyy-mm-dd
   if (/^\d{4}-\d{2}-\d{2}$/.test(input)) return input;
 
+  // dd/mm/yyyy
   const br = input.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
   if (br) {
     const [, d, m, y] = br;
     return `${y}-${m}-${d}`;
   }
 
-  return null;
-};
-
-const resolveRelativeDate = (text = "") => {
-  const t = text.toLowerCase();
-  const now = new Date();
-
-  if (t.includes("hoje")) return todayISO();
-
-  if (t.includes("amanhã")) {
-    now.setDate(now.getDate() + 1);
-    return now.toISOString().split("T")[0];
+  if (input.includes("amanhã")) {
+    const d = new Date();
+    d.setDate(d.getDate() + 1);
+    return d.toISOString().split("T")[0];
   }
 
-  if (t.includes("ontem")) {
-    now.setDate(now.getDate() - 1);
-    return now.toISOString().split("T")[0];
+  if (input.includes("hoje")) {
+    return todayISO();
   }
 
-  return null;
+  return todayISO();
 };
 
 /* ===============================
-   LIMPEZA DE DESCRIÇÃO (CORREÇÃO 1)
-================================ */
-const cleanDescription = (text = "") => {
-  return text
-    .replace(/\b(ontem|hoje|amanhã)\b/gi, "")
-    .replace(/\s+/g, " ")
-    .trim();
-};
-
-/* ===============================
-   CATEGORIAS (ALINHADAS AO APP)
+   CATEGORIAS (IGUAIS AO APP)
 ================================ */
 const CATEGORIES = [
   { name: "Moradia", keywords: ["aluguel", "condominio", "iptu", "luz", "agua", "internet"] },
-  { name: "Alimentação", keywords: ["lanche", "comida", "mercado", "supermercado", "padaria"] },
-  { name: "Transporte", keywords: ["gasolina", "combustivel", "uber", "99", "taxi", "onibus", "metro"] },
-  { name: "Compras", keywords: ["mochila", "bicicleta", "tenis", "roupa", "notebook", "eletronico"] },
+  { name: "Alimentação", keywords: ["lanche", "mercado", "comida", "restaurante", "padaria"] },
+  { name: "Transporte", keywords: ["uber", "99", "taxi", "onibus", "metro", "gasolina", "combustivel"] },
   { name: "Saúde", keywords: ["farmacia", "medico", "dentista", "remedio"] },
   { name: "Educação", keywords: ["curso", "faculdade", "livro"] },
-  { name: "Lazer", keywords: ["cinema", "bar", "show", "viagem"] },
-  { name: "Assinaturas", keywords: ["netflix", "spotify", "assinatura", "plano"] },
+  { name: "Lazer", keywords: ["cinema", "show", "viagem", "bar"] },
+  { name: "Compras", keywords: ["tenis", "roupa", "mochila", "bicicleta", "notebook", "eletronico"] },
+  { name: "Assinaturas", keywords: ["netflix", "spotify", "assinatura"] },
   { name: "Pets", keywords: ["pet", "racao", "veterinario"] },
   { name: "Presentes", keywords: ["presente", "aniversario"] },
   { name: "Dívidas", keywords: ["emprestimo", "financiamento", "divida", "parcela"] },
@@ -117,7 +98,7 @@ const classifyCategory = (text = "") => {
    HEALTH
 ================================ */
 app.get("/", (_, res) => {
-  res.send("🔮 Oráculo Financeiro ativo e lúcido.");
+  res.send("🔮 Oráculo Financeiro ativo.");
 });
 
 /* ===============================
@@ -130,94 +111,106 @@ app.post("/oraculo", async (req, res) => {
       return res.json({ reply: "⚠️ Não consegui identificar seu usuário." });
     }
 
-    if (!memory[user_id]) {
-      memory[user_id] = { expenses: [], awaitingConfirmation: false };
-    }
+    if (!memory[user_id]) memory[user_id] = { pendingExpenses: [] };
 
     /* ===============================
-       CONFIRMAÇÃO (“sim”) — SEM LOOP
+       OPENAI
     ================================ */
-    if (
-      memory[user_id].awaitingConfirmation &&
-      ["sim", "ok", "confirmar", "pode"].includes(message.toLowerCase())
-    ) {
-      for (const e of memory[user_id].expenses) {
-        await supabase.from("despesas").insert({
-          user_id,
-          description: e.descricao,
-          amount: e.valor,
-          category: e.categoria,
-          expense_date: e.data,
-          data_vencimento: e.data,
-          status: "pendente",
-          expense_type: "Variável"
-        });
+    const ai = await fetch("https://api.openai.com/v1/responses", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: `Bearer ${process.env.OPENAI_API_KEY}`
+      },
+      body: JSON.stringify({
+        model: "gpt-5-mini",
+        input: [
+          {
+            role: "system",
+            content: `
+Você é o ORÁCULO FINANCEIRO 🔮
+
+PERSONALIDADE:
+Mentor financeiro humano, direto, claro e empático.
+
+OBJETIVO:
+Interpretar mensagens livres e identificar UMA OU MAIS DESPESAS.
+
+REGRAS:
+- Sempre separe despesas individuais
+- Nunca pergunte novamente algo já identificado
+- Se a despesa estiver completa, registre
+- Categorias válidas:
+Moradia, Alimentação, Transporte, Saúde, Educação, Lazer, Compras, Assinaturas, Pets, Presentes, Dívidas, Investimentos, Outros
+
+FORMATO DE SAÍDA (JSON PURO):
+{
+  "despesas": [
+    {
+      "descricao": "",
+      "valor": null,
+      "categoria": "",
+      "data": ""
+    }
+  ],
+  "mensagem_usuario": ""
+}
+`
+          },
+          { role: "user", content: message }
+        ]
+      })
+    });
+
+    const data = await ai.json();
+    let raw = null;
+
+    for (const o of data.output || []) {
+      for (const c of o.content || []) {
+        if (c.type === "output_text") raw = c.text;
       }
+    }
 
-      memory[user_id] = { expenses: [], awaitingConfirmation: false };
+    if (!raw) {
+      return res.json({ reply: "⚠️ Não consegui interpretar sua mensagem." });
+    }
 
-      return res.json({
-        reply: "✅ Despesas registradas com sucesso. Deseja adicionar outra?"
-      });
+    const parsed = JSON.parse(raw);
+    const despesas = parsed.despesas || [];
+
+    if (!despesas.length) {
+      return res.json({ reply: parsed.mensagem_usuario || "Não identifiquei despesas." });
     }
 
     /* ===============================
-       PROCESSAMENTO MANUAL (SEM IA)
-       CORREÇÃO 2: separa por vírgula E “ e ”
+       SALVAR TODAS (SEPARADAS)
     ================================ */
-    const parts = message
-      .replace(/ e /gi, ",")
-      .split(",");
+    for (const d of despesas) {
+      const descricao = d.descricao;
+      const valor = d.valor;
+      const categoria = d.categoria || classifyCategory(descricao);
+      const dataISO = normalizeDate(d.data);
 
-    const detectedDate =
-      normalizeToISODate(message) ||
-      resolveRelativeDate(message) ||
-      todayISO();
+      if (!descricao || !valor) continue;
 
-    const expenses = [];
-
-    for (const part of parts) {
-      const valueMatch = part.match(/(\d+[.,]?\d*)/);
-      if (!valueMatch) continue;
-
-      const valor = Number(valueMatch[1].replace(",", "."));
-      const descricao = cleanDescription(
-        part.replace(valueMatch[1], "")
-      );
-
-      const categoria = classifyCategory(descricao);
-
-      expenses.push({
-        descricao,
-        valor,
-        categoria,
-        data: detectedDate
+      await supabase.from("despesas").insert({
+        user_id,
+        description: descricao,
+        amount: valor,
+        category: categoria,
+        expense_date: dataISO,
+        data_vencimento: dataISO,
+        status: "pendente",
+        expense_type: "Variável"
       });
     }
-
-    if (!expenses.length) {
-      return res.json({ reply: "⚠️ Não consegui identificar despesas válidas." });
-    }
-
-    memory[user_id].expenses = expenses;
-    memory[user_id].awaitingConfirmation = true;
-
-    /* ===============================
-       RESPOSTA HUMANA DO ORÁCULO
-    ================================ */
-    const resumo = expenses
-      .map(
-        (e, i) =>
-          `${i + 1}) ${e.descricao} — R$${e.valor} — ${e.categoria}`
-      )
-      .join("\n");
 
     return res.json({
-      reply: `🔮 Identifiquei as seguintes despesas em ${detectedDate}:\n\n${resumo}\n\nPosso registrar todas assim? Responda **"sim"** ou diga o que deseja ajustar.`
+      reply: `✅ Tudo certo! Registrei ${despesas.length} despesa(s) com sucesso.`
     });
 
   } catch (err) {
-    console.error(err);
+    console.error("🔥 Erro:", err);
     return res.status(500).json({
       reply: "⚠️ O Oráculo teve uma visão turva por um instante."
     });
