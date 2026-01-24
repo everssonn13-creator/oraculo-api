@@ -17,7 +17,7 @@ const app = express();
 app.use(express.json());
 
 /* ===============================
-   CORS
+   CORS (LIBERADO)
 ================================ */
 app.use((req, res, next) => {
   res.setHeader("Access-Control-Allow-Origin", "*");
@@ -28,12 +28,13 @@ app.use((req, res, next) => {
 });
 
 /* ===============================
-   MEMÓRIA RAM
+   MEMÓRIA CURTA (RAM)
 ================================ */
 const memory = {};
+
 /*
-memory[user_id] = {
-  pendingExpense: {},
+memory[userId] = {
+  expenses: [],
   awaitingConfirmation: false
 }
 */
@@ -62,12 +63,14 @@ const resolveRelativeDate = (text = "") => {
   const now = new Date();
 
   if (t.includes("hoje")) return todayISO();
-  if (t.includes("ontem")) {
-    now.setDate(now.getDate() - 1);
-    return now.toISOString().split("T")[0];
-  }
+
   if (t.includes("amanhã")) {
     now.setDate(now.getDate() + 1);
+    return now.toISOString().split("T")[0];
+  }
+
+  if (t.includes("ontem")) {
+    now.setDate(now.getDate() - 1);
     return now.toISOString().split("T")[0];
   }
 
@@ -75,21 +78,31 @@ const resolveRelativeDate = (text = "") => {
 };
 
 /* ===============================
+   LIMPEZA DE DESCRIÇÃO
+================================ */
+const cleanDescription = (text = "") => {
+  return text
+    .replace(/\b(ontem|hoje|amanhã)\b/gi, "")
+    .replace(/\s+/g, " ")
+    .trim();
+};
+
+/* ===============================
    CATEGORIAS
 ================================ */
 const CATEGORIES = [
   { name: "Moradia", keywords: ["aluguel", "condominio", "iptu", "luz", "agua", "internet"] },
-  { name: "Alimentação", keywords: ["lanche", "comida", "restaurante", "padaria", "mercado"] },
-  { name: "Transporte", keywords: ["uber", "99", "taxi", "onibus", "metro", "gasolina", "combustivel"] },
-  { name: "Compras", keywords: ["mochila", "roupa", "tenis", "bicicleta", "notebook"] },
-  { name: "Saúde", keywords: ["farmacia", "medico", "dentista"] },
+  { name: "Alimentação", keywords: ["lanche", "comida", "mercado", "supermercado", "padaria"] },
+  { name: "Transporte", keywords: ["gasolina", "combustivel", "uber", "99", "taxi", "onibus", "metro"] },
+  { name: "Compras", keywords: ["mochila", "bicicleta", "tenis", "roupa", "notebook", "eletronico"] },
+  { name: "Saúde", keywords: ["farmacia", "medico", "dentista", "remedio"] },
   { name: "Educação", keywords: ["curso", "faculdade", "livro"] },
-  { name: "Lazer", keywords: ["cinema", "show", "bar", "viagem"] },
-  { name: "Assinaturas", keywords: ["netflix", "spotify", "assinatura"] },
+  { name: "Lazer", keywords: ["cinema", "bar", "show", "viagem"] },
+  { name: "Assinaturas", keywords: ["netflix", "spotify", "assinatura", "plano"] },
   { name: "Pets", keywords: ["pet", "racao", "veterinario"] },
   { name: "Presentes", keywords: ["presente", "aniversario"] },
   { name: "Dívidas", keywords: ["emprestimo", "financiamento", "divida", "parcela"] },
-  { name: "Investimentos", keywords: ["acao", "fundo", "cripto"] }
+  { name: "Investimentos", keywords: ["acao", "fundo", "cripto", "investimento"] }
 ];
 
 const classifyCategory = (text = "") => {
@@ -104,7 +117,7 @@ const classifyCategory = (text = "") => {
    HEALTH
 ================================ */
 app.get("/", (_, res) => {
-  res.send("🔮 Oráculo Financeiro ativo.");
+  res.send("🔮 Oráculo Financeiro ativo e lúcido.");
 });
 
 /* ===============================
@@ -114,181 +127,75 @@ app.post("/oraculo", async (req, res) => {
   try {
     const { message, user_id } = req.body;
     if (!message || !user_id) {
-      return res.json({ reply: "⚠️ Usuário não identificado." });
+      return res.json({ reply: "⚠️ Não consegui identificar seu usuário." });
     }
 
     if (!memory[user_id]) {
-      memory[user_id] = { pendingExpense: {}, awaitingConfirmation: false };
+      memory[user_id] = { expenses: [], awaitingConfirmation: false };
     }
 
-    const state = memory[user_id];
-    const pending = state.pendingExpense;
-    const msg = message.toLowerCase();
-
-    /* ===============================
-       CONFIRMAÇÃO
-    ================================ */
     if (
-      state.awaitingConfirmation &&
-      ["sim", "confirmar", "ok", "pode"].includes(msg)
+      memory[user_id].awaitingConfirmation &&
+      ["sim", "ok", "confirmar", "pode"].includes(message.toLowerCase())
     ) {
-      const { error } = await supabase.from("despesas").insert({
-        user_id,
-        description: pending.descricao,
-        amount: pending.valor,
-        category: pending.categoria,
-        expense_date: pending.data,
-        data_vencimento: pending.data,
-        status: "pendente",
-        expense_type: "Variável"
-      });
-
-      if (error) {
-        console.error(error);
-        return res.json({ reply: "❌ Erro ao salvar despesa." });
-      }
-
-      memory[user_id] = { pendingExpense: {}, awaitingConfirmation: false };
-
-      return res.json({
-        reply: "✅ Despesa registrada com sucesso! Deseja registrar outra?"
-      });
-    }
-
-    /* ===============================
-       RELATÓRIO (SÓ SE PEDIR)
-    ================================ */
-    if (msg.includes("relatório")) {
-      let month = null;
-      let year = null;
-
-      const months = {
-        janeiro: 1, fevereiro: 2, março: 3, abril: 4,
-        maio: 5, junho: 6, julho: 7, agosto: 8,
-        setembro: 9, outubro: 10, novembro: 11, dezembro: 12
-      };
-
-      for (const [name, num] of Object.entries(months)) {
-        if (msg.includes(name)) month = num;
-      }
-
-      year = new Date().getFullYear();
-
-      if (!month) {
-        return res.json({
-          reply: "📅 Qual mês você deseja no relatório? (ex: janeiro)"
+      for (const e of memory[user_id].expenses) {
+        await supabase.from("despesas").insert({
+          user_id,
+          description: e.descricao,
+          amount: e.valor,
+          category: e.categoria,
+          expense_date: e.data,
+          data_vencimento: e.data,
+          status: "pendente",
+          expense_type: "Variável"
         });
       }
 
-      const { data, error } = await supabase
-        .from("despesas")
-        .select("amount, category, expense_date")
-        .eq("user_id", user_id)
-        .gte("expense_date", `${year}-${String(month).padStart(2, "0")}-01`)
-        .lte("expense_date", `${year}-${String(month).padStart(2, "0")}-31`);
+      memory[user_id] = { expenses: [], awaitingConfirmation: false };
 
-      if (error) {
-        console.error(error);
-        return res.json({ reply: "❌ Erro ao gerar relatório." });
-      }
-
-      let total = 0;
-      const byCat = {};
-
-      data.forEach(d => {
-        total += Number(d.amount);
-        byCat[d.category] = (byCat[d.category] || 0) + Number(d.amount);
+      return res.json({
+        reply: "✅ Despesas registradas com sucesso. Deseja adicionar outra?"
       });
-
-      let report = `📊 **Relatório de ${Object.keys(months).find(k => months[k] === month)}**\n\n`;
-      report += `💰 Total gasto: R$ ${total.toFixed(2)}\n\n`;
-      report += `📂 Por categoria:\n`;
-
-      for (const [cat, val] of Object.entries(byCat)) {
-        report += `• ${cat}: R$ ${val.toFixed(2)}\n`;
-      }
-
-      return res.json({ reply: report });
     }
 
-    /* ===============================
-       OPENAI — EXTRAÇÃO
-    ================================ */
-    const ai = await fetch("https://api.openai.com/v1/responses", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${process.env.OPENAI_API_KEY}`
-      },
-      body: JSON.stringify({
-        model: "gpt-5-mini",
-        input: [
-          {
-            role: "system",
-            content: `
-Você é o ORÁCULO FINANCEIRO 🔮
-Extraia dados de despesas.
-Responda APENAS em JSON válido.
+    const parts = message.replace(/ e /gi, ",").split(",");
 
-Formato:
-{
-  "descricao": "",
-  "valor": 0,
-  "data": ""
-}
-`
-          },
-          { role: "user", content: message }
-        ]
-      })
-    });
-
-    const data = await ai.json();
-
-    let raw = null;
-    for (const o of data.output || []) {
-      for (const c of o.content || []) {
-        if (c.type === "output_text") raw = c.text;
-      }
-    }
-
-    if (!raw) {
-      return res.json({ reply: "⚠️ Não consegui entender a despesa." });
-    }
-
-    let parsed;
-    try {
-      parsed = JSON.parse(raw);
-    } catch {
-      return res.json({ reply: "⚠️ Erro ao interpretar a despesa." });
-    }
-
-    pending.descricao = parsed.descricao;
-    pending.valor = parsed.valor;
-    pending.data =
-      normalizeToISODate(parsed.data) ||
-      resolveRelativeDate(parsed.data) ||
+    const detectedDate =
+      normalizeToISODate(message) ||
+      resolveRelativeDate(message) ||
       todayISO();
-    pending.categoria = classifyCategory(pending.descricao);
 
-    state.awaitingConfirmation = true;
+    const expenses = [];
+
+    for (const part of parts) {
+      const valueMatch = part.match(/(\d+[.,]?\d*)/);
+      if (!valueMatch) continue;
+
+      const valor = Number(valueMatch[1].replace(",", "."));
+      const descricao = cleanDescription(part.replace(valueMatch[1], ""));
+      const categoria = classifyCategory(descricao);
+
+      expenses.push({ descricao, valor, categoria, data: detectedDate });
+    }
+
+    if (!expenses.length) {
+      return res.json({ reply: "⚠️ Não consegui identificar despesas válidas." });
+    }
+
+    memory[user_id].expenses = expenses;
+    memory[user_id].awaitingConfirmation = true;
+
+    const resumo = expenses
+      .map((e, i) => `${i + 1}) ${e.descricao} — R$${e.valor} — ${e.categoria}`)
+      .join("\n");
 
     return res.json({
-      reply: `🔮 Posso registrar assim?
-
-Descrição: ${pending.descricao}
-Valor: R$ ${pending.valor}
-Categoria: ${pending.categoria}
-Data: ${pending.data}
-
-Responda **"sim"** para confirmar ou diga o que deseja ajustar.`
+      reply: `🔮 Identifiquei as seguintes despesas em ${detectedDate}:\n\n${resumo}\n\nPosso registrar todas assim? Responda **\"sim\"** ou diga o que deseja ajustar.`
     });
 
   } catch (err) {
     console.error(err);
-    return res.status(500).json({
-      reply: "⚠️ O Oráculo teve uma visão turva por um instante."
-    });
+    return res.status(500).json({ reply: "⚠️ O Oráculo teve uma visão turva por um instante." });
   }
 });
 
