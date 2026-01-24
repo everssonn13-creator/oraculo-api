@@ -1,270 +1,205 @@
-import express from "express";
-import fetch from "node-fetch";
-import { createClient } from "@supabase/supabase-js";
+import express from 'express';
+import { createClient } from '@supabase/supabase-js';
 
-/* ===============================
-   IMPORTA A LÓGICA REAL DO APP
-================================ */
-import {
-  EXPENSE_CATEGORIES,
-  classifyExpenseToCategory,
-  getCategoryByName
-} from "./src/constants/expenseCategories.js";
+/* ======================================================
+   🔐 SUPABASE
+   ====================================================== */
 
-/* ===============================
-   SUPABASE
-================================ */
 const supabase = createClient(
   process.env.SUPABASE_URL,
   process.env.SUPABASE_SERVICE_ROLE_KEY
 );
 
-/* ===============================
-   APP
-================================ */
+/* ======================================================
+   🚀 APP
+   ====================================================== */
+
 const app = express();
 app.use(express.json());
 
-app.use((_, res, next) => {
-  res.setHeader("Access-Control-Allow-Origin", "*");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type");
-  res.setHeader("Access-Control-Allow-Methods", "POST, GET, OPTIONS");
-  next();
-});
+/* ======================================================
+   🧠 MEMÓRIA DE CURTO PRAZO (POR SESSÃO)
+   ====================================================== */
 
-/* ===============================
-   MEMÓRIA CURTA (POR USUÁRIO)
-================================ */
 const memory = {};
 /*
-memory[userId] = {
-  expense: {
-    description,
-    amount,
-    category,
-    date
-  }
+memory[sessionId] = {
+  description,
+  amount,
+  category,
+  expense_date
 }
 */
 
-/* ===============================
-   UTIL – DATAS (SEM LIB)
-================================ */
-const today = () => {
-  const d = new Date();
-  d.setHours(0, 0, 0, 0);
-  return d;
-};
+/* ======================================================
+   🗂️ CATEGORIAS OFICIAIS DO APP
+   (IGUAL AO expenseCategories.js)
+   ====================================================== */
 
-const toISO = (date) => date.toISOString().split("T")[0];
+const CATEGORIES = [
+  { name: 'Moradia', keywords: ['aluguel','condominio','iptu','agua','luz','internet','gas','casa'] },
+  { name: 'Alimentação', keywords: ['lanche','comida','mercado','supermercado','padaria','pizza','ifood'] },
+  { name: 'Transporte', keywords: ['uber','99','gasolina','combustivel','onibus','metro','estacionamento'] },
+  { name: 'Saúde', keywords: ['farmacia','remedio','medico','dentista','exame'] },
+  { name: 'Educação', keywords: ['curso','faculdade','livro','mensalidade'] },
+  { name: 'Lazer', keywords: ['cinema','bar','show','viagem','jogo'] },
+  { name: 'Compras', keywords: ['tenis','roupa','sapato','bicicleta','celular','notebook'] },
+  { name: 'Assinaturas', keywords: ['netflix','spotify','assinatura','plano'] },
+  { name: 'Pets', keywords: ['pet','racao','veterinario','cachorro','gato'] },
+  { name: 'Presentes', keywords: ['presente','aniversario','natal'] },
+  { name: 'Dívidas', keywords: ['emprestimo','financiamento','parcela','divida'] },
+  { name: 'Investimentos', keywords: ['acao','investimento','tesouro','fundo'] },
+  { name: 'Outros', keywords: [] }
+];
 
-const parseDateFromText = (text) => {
+/* ======================================================
+   🔎 CLASSIFICADOR DE CATEGORIA
+   ====================================================== */
+
+function classifyCategory(text) {
   const lower = text.toLowerCase();
-
-  if (lower.includes("hoje")) return today();
-  if (lower.includes("amanhã") || lower.includes("amanha")) {
-    const d = today();
-    d.setDate(d.getDate() + 1);
-    return d;
+  for (const cat of CATEGORIES) {
+    if (cat.keywords.some(k => lower.includes(k))) {
+      return cat.name;
+    }
   }
-  if (lower.includes("ontem")) {
-    const d = today();
-    d.setDate(d.getDate() - 1);
-    return d;
+  return null;
+}
+
+/* ======================================================
+   📅 PARSER DE DATAS (SEM LIBS)
+   ====================================================== */
+
+function parseDate(text) {
+  const today = new Date();
+
+  const normalize = (d) => d.toISOString().split('T')[0];
+
+  if (text.includes('hoje')) return normalize(today);
+
+  if (text.includes('amanha')) {
+    today.setDate(today.getDate() + 1);
+    return normalize(today);
   }
 
   // dd/mm/yyyy
-  const numeric = lower.match(/(\d{1,2})\/(\d{1,2})\/(\d{4})/);
+  const numeric = text.match(/(\d{2})\/(\d{2})\/(\d{4})/);
   if (numeric) {
-    const [, day, month, year] = numeric;
-    return new Date(Number(year), Number(month) - 1, Number(day));
+    return `${numeric[3]}-${numeric[2]}-${numeric[1]}`;
   }
 
-  // "dia 5 do próximo mês"
-  const nextMonth = lower.match(/dia\s(\d{1,2}).*proximo mes/);
+  // "dia 5 do proximo mes"
+  const nextMonth = text.match(/dia (\d{1,2}) do proximo mes/);
   if (nextMonth) {
-    const d = today();
+    const d = new Date();
     d.setMonth(d.getMonth() + 1);
     d.setDate(Number(nextMonth[1]));
-    return d;
+    return normalize(d);
   }
 
   return null;
-};
-
-/* ===============================
-   HEALTH
-================================ */
-app.get("/", (_, res) => {
-  res.send("🔮 Oráculo Financeiro ativo.");
-});
-
-/* ===============================
-   ROTA PRINCIPAL
-================================ */
-app.post("/oraculo", async (req, res) => {
-  try {
-    const { message, user_id } = req.body;
-
-    if (!message || !user_id) {
-      return res.json({ reply: "Não consegui identificar seu usuário." });
-    }
-
-    if (!memory[user_id]) {
-      memory[user_id] = { expense: {} };
-    }
-
-    const state = memory[user_id].expense;
-
-    /* ===============================
-       IA – SYSTEM PROMPT
-    ================================ */
-    const systemPrompt = `
-Você é o ORÁCULO FINANCEIRO 🔮
-
-PERSONALIDADE:
-- Tom humano, empático e claro
-- Levemente bem-humorado
-- Age como um mentor financeiro experiente
-- Nunca infantil
-- Nunca robótico
-
-OBJETIVO:
-Ajudar o usuário a registrar despesas corretamente.
-
-CATEGORIAS EXISTENTES (NUNCA INVENTAR OUTRAS):
-
-${EXPENSE_CATEGORIES.map(c => `- ${c.name}`).join("\n")}
-
-REGRAS IMPORTANTES:
-- Nunca crie categorias novas
-- Se reconhecer a categoria, NÃO pergunte
-- Só pergunte o que estiver faltando
-- Use memória da conversa
-- Datas possíveis:
-  hoje, amanhã, ontem,
-  dd/mm/yyyy,
-  "dia X do próximo mês"
-
-FORMATO DE SAÍDA OBRIGATÓRIO (JSON PURO):
-{
-  "acao": "RESPONDER | COLETAR | REGISTRAR",
-  "dados": {
-    "description": "",
-    "amount": null,
-    "category": "",
-    "dateText": ""
-  },
-  "mensagem": ""
 }
-`;
 
-    const aiResponse = await fetch("https://api.openai.com/v1/responses", {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        Authorization: `Bearer ${process.env.OPENAI_API_KEY}`
-      },
-      body: JSON.stringify({
-        model: "gpt-5-mini",
-        input: [
-          { role: "system", content: systemPrompt },
-          { role: "user", content: message }
-        ]
-      })
-    });
+/* ======================================================
+   🧙 PERSONALIDADE DO ORÁCULO
+   ====================================================== */
 
-    const data = await aiResponse.json();
+function oracle(text) {
+  return `🔮 **Oráculo Financeiro**  
+${text}`;
+}
 
-    let raw;
-    for (const o of data.output || []) {
-      for (const c of o.content || []) {
-        if (c.type === "output_text") raw = c.text;
+/* ======================================================
+   🤖 ROTA PRINCIPAL
+   ====================================================== */
+
+app.post('/oraculo', async (req, res) => {
+  try {
+    const { sessionId, user_id, message } = req.body;
+    if (!sessionId || !user_id) {
+      return res.json({ reply: oracle('Não consegui identificar seu usuário.') });
+    }
+
+    if (!memory[sessionId]) memory[sessionId] = {};
+    const mem = memory[sessionId];
+    const text = message.toLowerCase();
+
+    /* -------- VALOR -------- */
+    const valueMatch = text.match(/(\d+[.,]?\d*)/);
+    if (valueMatch && !mem.amount) {
+      mem.amount = Number(valueMatch[1].replace(',', '.'));
+    }
+
+    /* -------- DESCRIÇÃO -------- */
+    if (!mem.description) {
+      mem.description = message;
+    }
+
+    /* -------- CATEGORIA -------- */
+    if (!mem.category) {
+      const cat = classifyCategory(text);
+      if (cat) mem.category = cat;
+    }
+
+    /* -------- DATA -------- */
+    if (!mem.expense_date) {
+      const d = parseDate(text);
+      if (d) mem.expense_date = d;
+    }
+
+    /* -------- CHECAGEM FINAL -------- */
+    if (mem.description && mem.amount && mem.category && mem.expense_date) {
+
+      const { error } = await supabase.from('despesas').insert({
+        user_id,
+        description: mem.description,
+        amount: mem.amount,
+        category: mem.category,
+        expense_date: mem.expense_date,
+        expense_type: 'Variável',
+        status: 'pendente'
+      });
+
+      memory[sessionId] = {}; // limpa memória
+
+      if (error) {
+        console.error(error);
+        return res.json({ reply: oracle('Tive um problema ao salvar essa despesa.') });
       }
-    }
 
-    if (!raw) {
-      return res.json({ reply: "Não consegui entender sua mensagem." });
-    }
-
-    const parsed = JSON.parse(raw);
-    const d = parsed.dados || {};
-
-    /* ===============================
-       MEMÓRIA
-    ================================ */
-    if (d.description) state.description = d.description;
-    if (d.amount) state.amount = d.amount;
-
-    if (d.category) {
-      const cat = getCategoryByName(d.category);
-      state.category = cat.name;
-    }
-
-    if (d.dateText) {
-      const parsedDate = parseDateFromText(d.dateText);
-      if (parsedDate) state.date = parsedDate;
-    }
-
-    if (!state.date) state.date = today();
-
-    /* ===============================
-       AUTO CLASSIFICAÇÃO
-    ================================ */
-    if (!state.category && state.description) {
-      const auto = classifyExpenseToCategory(state.description);
-      if (auto.id !== "outros") {
-        state.category = auto.name;
-      }
-    }
-
-    /* ===============================
-       VERIFICA FALTANTES
-    ================================ */
-    const missing = [];
-    if (!state.description) missing.push("descrição");
-    if (!state.amount) missing.push("valor");
-    if (!state.category) missing.push("categoria");
-
-    if (missing.length > 0) {
       return res.json({
-        reply:
-          parsed.mensagem ||
-          `Só preciso confirmar: ${missing.join(", ")}.`
+        reply: oracle(
+          `Despesa registrada com sucesso ✨  
+💰 R$ ${mem.amount}  
+📂 ${mem.category}  
+📅 ${mem.expense_date}  
+
+Quer registrar outra?`
+        )
       });
     }
 
-    /* ===============================
-       REGISTRA
-    ================================ */
-    await supabase.from("despesas").insert({
-      user_id,
-      description: state.description,
-      amount: state.amount,
-      category: state.category,
-      expense_date: toISO(state.date),
-      status: "pendente",
-      expense_type: "Variável"
-    });
+    /* -------- PERGUNTAS INTELIGENTES -------- */
+    if (!mem.category) {
+      return res.json({ reply: oracle('Em qual categoria essa despesa se encaixa?') });
+    }
 
-    memory[user_id].expense = {};
+    if (!mem.expense_date) {
+      return res.json({ reply: oracle('Qual foi a data? Pode ser hoje, amanhã ou 05/02/2026.') });
+    }
 
-    return res.json({
-      reply: "Despesa registrada com sucesso. Quer adicionar outra?"
-    });
+    return res.json({ reply: oracle('Pode continuar, estou acompanhando.') });
 
   } catch (err) {
     console.error(err);
-    res.status(500).json({
-      reply: "O Oráculo teve uma falha momentânea."
-    });
+    res.json({ reply: oracle('Algo saiu errado nos meus cálculos místicos.') });
   }
 });
 
-/* ===============================
-   START
-================================ */
-const PORT = process.env.PORT || 8080;
-app.listen(PORT, () => {
-  console.log("🔮 Oráculo Financeiro rodando na porta", PORT);
+/* ======================================================
+   🚀 START
+   ====================================================== */
+
+app.listen(8080, () => {
+  console.log('🔮 Oráculo Financeiro conectado ao Supabase');
 });
