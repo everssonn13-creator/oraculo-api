@@ -23,6 +23,7 @@ app.use((req, res, next) => {
   res.setHeader("Access-Control-Allow-Methods", "POST, GET, OPTIONS");
   next();
 });
+
 app.options("*", (_, res) => res.sendStatus(200));
 
 /* ===============================
@@ -44,13 +45,16 @@ memory[userId] = {
    HEALTH
 ================================ */
 app.get("/", (_, res) => {
-  res.send("🔮 Oráculo Financeiro ativo.");
+  res.send("🔮 Oráculo Financeiro ativo e consciente.");
 });
 
 /* ===============================
    UTIL
 ================================ */
-const todayISO = () => new Date().toISOString().split("T")[0];
+const todayISO = () => {
+  const d = new Date();
+  return d.toISOString().split("T")[0];
+};
 
 /* ===============================
    ROTA PRINCIPAL
@@ -60,7 +64,7 @@ app.post("/oraculo", async (req, res) => {
     const { message, user_id } = req.body;
 
     if (!message || !user_id) {
-      return res.json({ reply: "⚠️ Usuário não identificado." });
+      return res.json({ reply: "⚠️ Não consegui identificar seu usuário." });
     }
 
     if (!memory[user_id]) memory[user_id] = {};
@@ -84,38 +88,70 @@ app.post("/oraculo", async (req, res) => {
           {
             role: "system",
             content: `
-Você é o ORÁCULO FINANCEIRO 🔮.
+Você é o ORÁCULO FINANCEIRO 🔮, especialista em interpretar linguagem humana informal
+e converter em registros financeiros estruturados.
 
-OBJETIVO:
-Registrar despesas automaticamente a partir de mensagens naturais.
+========================
+OBJETIVO
+========================
+Identificar despesas descritas em linguagem natural e convertê-las
+em dados prontos para salvar no banco.
 
-REGRAS:
-- Nunca invente valores ou datas
-- Nunca repita perguntas
-- Use sempre a memória
-- Data padrão: hoje
-- Registre assim que todos os dados existirem
+========================
+REGRAS FUNDAMENTAIS
+========================
+- Nunca invente valores.
+- Nunca invente datas.
+- Não repita perguntas já respondidas.
+- Pergunte SOMENTE o que estiver faltando.
+- Sempre normalize datas para YYYY-MM-DD.
+- Se nenhuma data for mencionada, use a data de hoje.
+- Nunca escreva texto fora do JSON.
 
-DADOS OBRIGATÓRIOS:
-descrição, valor, categoria, data
+========================
+INTERPRETAÇÃO DE DATAS
+========================
+Converta expressões humanas em datas reais usando a data atual como referência.
 
-DATAS:
-Interprete datas naturais (ontem, amanhã, dia 10 de janeiro de 2026, etc).
-Formato final: YYYY-MM-DD
+Exemplos obrigatórios:
+- hoje → hoje
+- ontem → hoje - 1 dia
+- amanhã → hoje + 1 dia
+- sexta passada → última sexta antes de hoje
+- sexta retrasada → sexta da semana anterior à passada
+- segunda que vem → próxima segunda após hoje
+- dia 10 → dia 10 do mês atual (ou próximo se já passou)
+- 10 de janeiro de 2026 → 2026-01-10
+- semana passada → segunda-feira da semana anterior
+- mês passado → primeiro dia do mês anterior
 
-CATEGORIAS (inferir sempre que possível):
-Alimentação, Transporte, Compras, Moradia, Saúde, Lazer
+Se apenas o dia da semana for citado, use o mais próximo no passado.
 
-FORMATO DE RESPOSTA (JSON):
+========================
+CATEGORIAS (AUTO)
+========================
+- Alimentação: lanche, mercado, comida, restaurante, pizza
+- Transporte: uber, taxi, 99, gasolina, combustível
+- Compras: tênis, roupa, notebook, compras
+- Moradia: aluguel, condomínio
+- Contas: internet, celular, luz, água
+- Lazer: cinema, bar, show
+- Saúde: médico, farmácia
+
+Pergunte a categoria SOMENTE se não for possível inferir.
+
+========================
+FORMATO DE SAÍDA (JSON)
+========================
 {
-  "acao": "RESPONDER | COLETAR_DADO | REGISTRAR_DESPESA",
+  "acao": "RESPONDER" | "COLETAR_DADO" | "REGISTRAR_DESPESA",
   "dados": {
-    "descricao": "",
-    "valor": null,
-    "categoria": "",
-    "data": ""
+    "descricao": null | string,
+    "valor": null | number,
+    "categoria": null | string,
+    "data": null | "YYYY-MM-DD"
   },
-  "mensagem_usuario": ""
+  "mensagem_usuario": string
 }
 `
           },
@@ -137,7 +173,7 @@ FORMATO DE RESPOSTA (JSON):
     }
 
     if (!raw) {
-      return res.json({ reply: "⚠️ Não consegui entender sua mensagem." });
+      return res.json({ reply: "⚠️ Não consegui interpretar sua mensagem." });
     }
 
     const action = JSON.parse(raw);
@@ -170,7 +206,7 @@ FORMATO DE RESPOSTA (JSON):
     }
 
     /* ===============================
-       REGISTRA NO SUPABASE
+       REGISTRA DESPESA
     ================================ */
     const { error } = await supabase.from("despesas").insert({
       user_id,
@@ -183,8 +219,10 @@ FORMATO DE RESPOSTA (JSON):
     });
 
     if (error) {
-      console.error("Supabase error:", error);
-      return res.json({ reply: "❌ Erro ao salvar despesa." });
+      console.error("❌ Supabase:", error);
+      return res.json({
+        reply: "❌ Ocorreu um erro ao salvar a despesa."
+      });
     }
 
     memory[user_id].pendingExpense = {};
@@ -194,8 +232,8 @@ FORMATO DE RESPOSTA (JSON):
     });
 
   } catch (err) {
-    console.error("Erro Oráculo:", err);
-    res.status(500).json({
+    console.error("🔥 Erro:", err);
+    return res.status(500).json({
       reply: "⚠️ O Oráculo teve uma falha momentânea."
     });
   }
