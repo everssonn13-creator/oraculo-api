@@ -1,5 +1,4 @@
 import express from "express";
-import fetch from "node-fetch";
 import { createClient } from "@supabase/supabase-js";
 
 /* ===============================
@@ -34,8 +33,7 @@ const memory = {};
 /*
 memory[user_id] = {
   expenses: [],
-  awaitingConfirmation: false,
-  pendingQuestion: null
+  awaitingConfirmation: false
 }
 */
 
@@ -44,154 +42,178 @@ memory[user_id] = {
 ================================ */
 const todayISO = () => new Date().toISOString().split("T")[0];
 
-const resolveDate = (text) => {
+const parseExplicitDate = (text) => {
   const t = text.toLowerCase();
-  const now = new Date();
-
-  if (t.includes("amanhã")) {
-    now.setDate(now.getDate() + 1);
-    return now.toISOString().split("T")[0];
-  }
-
-  if (t.includes("hoje")) return todayISO();
 
   if (t.includes("ontem")) {
-    now.setDate(now.getDate() - 1);
-    return now.toISOString().split("T")[0];
-  }
-
-  const br = t.match(/dia\s(\d{1,2})\sde\s(janeiro|fevereiro|março|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro)/i);
-  if (br) {
-    const months = {
-      janeiro: 0, fevereiro: 1, março: 2, abril: 3, maio: 4, junho: 5,
-      julho: 6, agosto: 7, setembro: 8, outubro: 9, novembro: 10, dezembro: 11
-    };
     const d = new Date();
-    d.setMonth(months[br[2]]);
-    d.setDate(Number(br[1]));
+    d.setDate(d.getDate() - 1);
     return d.toISOString().split("T")[0];
   }
 
-  return todayISO();
+  if (t.includes("hoje")) {
+    return todayISO();
+  }
+
+  if (t.includes("amanhã")) {
+    const d = new Date();
+    d.setDate(d.getDate() + 1);
+    return d.toISOString().split("T")[0];
+  }
+
+  const match = t.match(
+    /dia\s+(\d{1,2})\s+de\s+(janeiro|fevereiro|março|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro)/
+  );
+
+  if (match) {
+    const months = {
+      janeiro: 0, fevereiro: 1, março: 2, abril: 3,
+      maio: 4, junho: 5, julho: 6, agosto: 7,
+      setembro: 8, outubro: 9, novembro: 10, dezembro: 11
+    };
+    const d = new Date();
+    d.setMonth(months[match[2]]);
+    d.setDate(Number(match[1]));
+    return d.toISOString().split("T")[0];
+  }
+
+  return null;
 };
 
 /* ===============================
-   CATEGORIAS (DICIONÁRIO RICO)
+   CATEGORIAS (DICIONÁRIO FINAL)
 ================================ */
 const CATEGORY_MAP = {
   Alimentação: [
-    "lanche","pastel","marmita","comida","refeição","almoço","janta","jantar",
-    "café","padaria","restaurante","lanchonete","pizzaria","hamburguer",
-    "pizza","ifood","delivery","mercado","supermercado","bebida","cerveja"
+    "lanche","pastel","marmita","comida","refeição","almoço","janta",
+    "restaurante","lanchonete","ifood","delivery","mercado","padaria"
   ],
   Transporte: [
     "gasolina","abastecer","abasteci","combustível","etanol","diesel",
-    "posto","uber","99","taxi","ônibus","metro","passagem",
-    "estacionamento","pedágio","ipva","seguro","lavagem","lava jato"
+    "uber","99","taxi","ônibus","metro","passagem","estacionamento",
+    "carro","moto"
   ],
   Moradia: [
     "aluguel","condomínio","luz","energia","água","gás",
-    "internet","wi-fi","iptu","reforma","manutenção"
+    "internet","iptu"
   ],
   Saúde: [
-    "dentista","consulta","médico","medica","hospital","exame",
-    "farmácia","remédio","medicamento","plano de saúde",
-    "psicólogo","terapia","fisioterapia","odontologia"
+    "dentista","consulta","médico","medica","farmácia","remédio",
+    "hospital","exame","terapia","psicólogo"
   ],
   Educação: [
-    "curso","faculdade","universidade","mensalidade","escola",
-    "livro","material","udemy","alura","certificação"
-  ],
-  Lazer: [
-    "cinema","filme","show","evento","viagem","passeio",
-    "bar","balada","jogo","games","netflix","spotify"
-  ],
-  Compras: [
-    "roupa","camisa","calça","tênis","sapato","celular",
-    "notebook","computador","fone","amazon","shopee"
+    "curso","faculdade","universidade","escola","livro","mensalidade"
   ],
   Assinaturas: [
-    "assinatura","mensalidade","chatgpt","chatgpt pro","openai",
-    "hostinger","spotify","netflix","prime","icloud",
-    "google drive","adobe","canva"
+    "assinatura","chatgpt","chatgpt pro","openai","netflix",
+    "spotify","hostinger","prime","icloud","google drive"
+  ],
+  Lazer: [
+    "cinema","show","viagem","bar","balada","jogo"
+  ],
+  Compras: [
+    "roupa","tenis","tênis","celular","notebook","amazon","shopee"
   ],
   Dívidas: [
-    "empréstimo","emprestimo","financiamento","parcela",
-    "fatura","cartão","juros","boleto","acordo"
+    "empréstimo","emprestimo","parcela","fatura","cartão","boleto"
   ],
   Investimentos: [
-    "investimento","aplicação","poupança","tesouro",
-    "cdb","ações","bolsa","bitcoin","cripto"
+    "investimento","aplicação","poupança","tesouro","cdb","ações"
   ],
   Pets: [
-    "pet","cachorro","gato","ração","veterinário",
-    "vacina","banho","tosa","petshop"
+    "pet","cachorro","gato","ração","veterinário","petshop"
   ],
   Presentes: [
-    "presente","lembrança","aniversário","natal",
-    "flores","chocolate"
+    "presente","aniversário","natal","flores"
   ]
 };
 
 const classifyCategory = (text) => {
   const t = text.toLowerCase();
-  let best = { name: "Outros", score: 0 };
+  let best = { cat: "Outros", score: 0 };
 
   for (const [cat, words] of Object.entries(CATEGORY_MAP)) {
     let score = 0;
     for (const w of words) {
       if (t.includes(w)) score++;
     }
-    if (score > best.score) best = { name: cat, score };
+    if (score > best.score) best = { cat, score };
   }
 
-  return best.name;
+  return best.cat;
 };
 
 /* ===============================
-   EXTRAÇÃO MÚLTIPLA
+   UTILIDADES NLP
 ================================ */
-const cleanDescription = (text) =>
+const normalizeText = (text) =>
   text
     .toLowerCase()
-    .replace(/comprei|gastei|paguei|abasteci|tenho que pagar|valor|por|de|com|um|uma|dois|duas/gi, "")
+    .replace(/[,;]/g, " ")
     .replace(/\s+/g, " ")
     .trim();
 
-const extractExpenses = (text) => {
-  const normalized = text
-    .toLowerCase()
-    .replace(/,/g, " ")
-    .replace(/ e /g, " | ")
-    .replace(/ também /g, " | ");
+const isOnlyNumber = (text) =>
+  /^\d+([.,]\d+)?$/.test(text.trim());
 
-  const parts = normalized.split("|");
+const isAbortText = (text) =>
+  ["sei lá","qualquer coisa","umas coisas"].some(k =>
+    text.toLowerCase().includes(k)
+  );
+
+/* ===============================
+   EXTRAÇÃO ROBUSTA (CORE)
+================================ */
+const extractExpenses = (originalText) => {
+  const text = normalizeText(originalText);
+
+  // Divide por contexto semântico
+  const blocks = text
+    .replace(/\s+e\s+/g, "|")
+    .split("|")
+    .map(b => b.trim())
+    .filter(Boolean);
+
   const expenses = [];
 
-  for (const p of parts) {
-    const match = p.match(/(.+?)\s+(\d+[.,]?\d*)/);
-    if (!match) {
-      const desc = cleanDescription(p);
-      if (desc) {
-        expenses.push({ descricao: desc, valor: null });
+  for (const block of blocks) {
+    const date = parseExplicitDate(block);
+    const cleanBlock = block
+      .replace(/ontem|hoje|amanhã/gi, "")
+      .replace(/dia\s+\d{1,2}\s+de\s+\w+/gi, "")
+      .trim();
+
+    const tokens = cleanBlock.split(" ");
+    let value = null;
+    let descTokens = [];
+
+    for (let i = 0; i < tokens.length; i++) {
+      if (/^\d+([.,]\d+)?$/.test(tokens[i])) {
+        value = Number(tokens[i].replace(",", "."));
+        break;
       }
-      continue;
+      descTokens.push(tokens[i]);
     }
 
+    const description = descTokens.join(" ").trim();
+
+    if (!description) continue;
+
     expenses.push({
-      descricao: cleanDescription(match[1]),
-      valor: Number(match[2].replace(",", "."))
+      description,
+      amount: value ?? null,
+      date: date ?? todayISO()
     });
   }
 
-  return expenses.filter(e => e.descricao);
+  return expenses;
 };
 
 /* ===============================
    CONFIRMAÇÃO
 ================================ */
 const isConfirmation = (msg) =>
-  ["sim","confirmar","ok","pode","isso"].includes(msg.trim().toLowerCase());
+  ["sim","ok","confirmar","pode"].includes(msg.trim().toLowerCase());
 
 /* ===============================
    ROTA PRINCIPAL
@@ -199,47 +221,65 @@ const isConfirmation = (msg) =>
 app.post("/oraculo", async (req, res) => {
   try {
     const { message, user_id } = req.body;
+
     if (!message || !user_id) {
       return res.json({ reply: "⚠️ Usuário não identificado." });
+    }
+
+    if (isAbortText(message)) {
+      return res.json({
+        reply: "🤔 Não consegui entender. Pode explicar melhor?"
+      });
     }
 
     if (!memory[user_id]) {
       memory[user_id] = { expenses: [], awaitingConfirmation: false };
     }
 
-    /* CONFIRMAÇÃO */
-    if (memory[user_id].awaitingConfirmation && isConfirmation(message)) {
-      for (const e of memory[user_id].expenses) {
-        await supabase.from("despesas").insert({
-          user_id,
-          description: e.description,
-          amount: e.amount,
-          category: e.category,
-          expense_date: e.date,
-          data_vencimento: e.date,
-          status: "pendente",
-          expense_type: "Variável",
-          is_recurring: false
-        });
+    if (memory[user_id].awaitingConfirmation) {
+      if (isConfirmation(message)) {
+        for (const e of memory[user_id].expenses) {
+          await supabase.from("despesas").insert({
+            user_id,
+            description: e.description,
+            amount: e.amount,
+            category: e.category,
+            expense_date: e.date,
+            data_vencimento: e.date,
+            status: "pendente",
+            expense_type: "Variável",
+            is_recurring: false
+          });
+        }
+
+        memory[user_id] = { expenses: [], awaitingConfirmation: false };
+        return res.json({ reply: "✅ Despesas registradas com sucesso." });
       }
 
-      memory[user_id] = { expenses: [], awaitingConfirmation: false };
-      return res.json({ reply: "✅ Despesas registradas com sucesso." });
+      return res.json({
+        reply: "❌ Ok, não salvei. O que você quer corrigir?"
+      });
     }
 
-    /* EXTRAÇÃO */
+    if (isOnlyNumber(message)) {
+      return res.json({
+        reply: "❓ Esse valor é referente a qual despesa?"
+      });
+    }
+
     const extracted = extractExpenses(message);
-    if (!extracted.length) {
-      return res.json({ reply: "⚠️ Não consegui identificar despesas." });
-    }
 
-    const date = resolveDate(message);
+    if (!extracted.length) {
+      return res.json({
+        reply: "🤔 Não consegui identificar despesas. Pode reformular?"
+      });
+    }
 
     memory[user_id].expenses = extracted.map(e => ({
-      description: e.descricao,
-      amount: e.valor ?? null,
-      category: classifyCategory(e.descricao),
-      date
+      description: e.description,
+      amount: e.amount,
+      category: classifyCategory(e.description),
+      date: e.date
     }));
 
     memory[user_id].awaitingConfirmation = true;
@@ -251,7 +291,7 @@ app.post("/oraculo", async (req, res) => {
       } — ${e.category}\n`;
     });
 
-    preview += `\n📅 Data: ${date}\n\nResponda "sim" para confirmar.`;
+    preview += `\nResponda "sim" para confirmar.`;
 
     return res.json({ reply: preview });
 
