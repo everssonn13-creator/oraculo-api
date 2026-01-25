@@ -265,6 +265,31 @@ app.post("/oraculo", async (req, res) => {
     if (!message || !user_id) {
       return res.json({ reply: ORACLE.askClarify });
     }
+// ===============================
+// DETECTOR DE INTENÇÃO
+// ===============================
+const lowerMsg = message.toLowerCase();
+
+const isReportRequest =
+  lowerMsg.includes("relatório") ||
+  lowerMsg.includes("relatorio") ||
+  lowerMsg.includes("diagnóstico") ||
+  lowerMsg.includes("diagnostico") ||
+  lowerMsg.includes("análise") ||
+  lowerMsg.includes("analise") ||
+  lowerMsg.includes("gastei com");
+
+const isConversation =
+  memory[user_id]?.lastReport &&
+  (
+    lowerMsg.includes("o que você acha") ||
+    lowerMsg.includes("oq vc acha") ||
+    lowerMsg.includes("isso é bom") ||
+    lowerMsg.includes("isso é ruim") ||
+    lowerMsg.includes("preocupante") ||
+    lowerMsg.includes("ok") ||
+    lowerMsg.includes("entendi")
+  );
 
     if (!memory[user_id]) memory[user_id] = { state: "idle", expenses: [] };
 
@@ -288,6 +313,77 @@ app.post("/oraculo", async (req, res) => {
       }
       memory[user_id] = { state: "idle", expenses: [] };
     }
+// ===============================
+// RELATÓRIO MENSAL
+// ===============================
+if (isReportRequest) {
+  const monthMatch = lowerMsg.match(
+    /(janeiro|fevereiro|março|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro)/
+  );
+
+  const months = {
+    janeiro: 0, fevereiro: 1, março: 2, abril: 3,
+    maio: 4, junho: 5, julho: 6, agosto: 7,
+    setembro: 8, outubro: 9, novembro: 10, dezembro: 11
+  };
+
+  const now = new Date();
+  const start = new Date(now.getFullYear(), monthMatch ? months[monthMatch[1]] : now.getMonth(), 1);
+  const end = new Date(start.getFullYear(), start.getMonth() + 1, 0);
+
+  const { data, error } = await supabase
+    .from("despesas")
+    .select("*")
+    .eq("user_id", user_id)
+    .gte("expense_date", start.toISOString().split("T")[0])
+    .lte("expense_date", end.toISOString().split("T")[0]);
+
+  if (!data || !data.length) {
+    return res.json({
+      reply: "📭 Ainda não há registros suficientes para esse período."
+    });
+  }
+
+  let total = 0;
+  const byCategory = {};
+
+  data.forEach(d => {
+    total += d.amount || 0;
+    byCategory[d.category] = (byCategory[d.category] || 0) + (d.amount || 0);
+  });
+
+  let reply = `📊 **Relatório ${monthMatch ? monthMatch[1] : "do mês atual"}**\n\n`;
+  reply += `💰 Total gasto: **R$ ${total.toFixed(2)}**\n\n`;
+
+  for (const [cat, val] of Object.entries(byCategory)) {
+    const pct = ((val / total) * 100).toFixed(1);
+    reply += `• ${cat}: R$ ${val.toFixed(2)} (${pct}%)\n`;
+  }
+
+  memory[user_id].lastReport = { total, byCategory };
+
+  reply += `\n🔮 Quer que eu analise isso com mais profundidade?`;
+
+  return res.json({ reply });
+}
+// ===============================
+// CONVERSA SOBRE RELATÓRIO
+// ===============================
+if (isConversation) {
+  const { total, byCategory } = memory[user_id].lastReport;
+
+  const highest = Object.entries(byCategory)
+    .sort((a, b) => b[1] - a[1])[0];
+
+  let reply = `🔮 Observando seus gastos...\n\n`;
+  reply += `📌 Você gastou mais em **${highest[0]}**.\n`;
+  reply += `💭 Isso representa uma parte significativa do seu orçamento.\n\n`;
+
+  reply += `Se quiser, posso te ajudar a:\n`;
+  reply += `• reduzir gastos\n• planejar o próximo mês\n• analisar outra categoria`;
+
+  return res.json({ reply });
+}
 
     const extracted = extractExpenses(message);
     if (!extracted.length) {
