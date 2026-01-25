@@ -27,7 +27,18 @@ app.use((req, res, next) => {
 });
 
 /* ===============================
-   MEMÓRIA (ESTADO REAL)
+   PERSONALIDADE DO ORÁCULO
+================================ */
+const ORACLE = {
+  askClarify: "🔮 Minha visão ficou turva… pode me dar mais detalhes?",
+  askConfirm: "Se minha leitura estiver correta, diga **\"sim\"**.",
+  saved: "📜 As despesas foram seladas no livro financeiro.",
+  nothingFound: "🌫️ Não consegui enxergar nenhuma despesa nessa mensagem.",
+  aborted: "🌫️ As palavras se dispersaram… tente novamente com mais clareza."
+};
+
+/* ===============================
+   MEMÓRIA DE ESTADO
 ================================ */
 const memory = {};
 /*
@@ -53,7 +64,7 @@ const parseDateFromText = (text) => {
 
   if (t.includes("hoje")) return todayISO();
 
-  if (t.includes("amanhã")) {
+  if (t.includes("amanhã") || t.includes("amanha")) {
     const d = new Date();
     d.setDate(d.getDate() + 1);
     return d.toISOString().split("T")[0];
@@ -79,29 +90,174 @@ const parseDateFromText = (text) => {
 };
 
 /* ===============================
-   CATEGORIAS (EXPANDIDAS)
+   CATEGORIAS (COMPLETAS DO APP)
 ================================ */
-const CATEGORY_MAP = {
+const categorias = {
   Alimentação: [
-    "lanche","pastel","marmita","comida","refeição",
-    "almoço","janta","comi fora","comer fora",
-    "restaurante","lanchonete","ifood","mercado"
+    // verbos / início de frase
+    "comi","almocei","jantei","lanchei","pedi comida","comer fora","comi fora",
+    "gastei com comida","gastei em comida",
+
+    // alimentos e locais
+    "lanche","pastel","coxinha","pizza","hambúrguer","hamburguer","sushi","esfiha",
+    "marmita","pf","prato feito","self service","buffet","rodízio","rodizio",
+    "restaurante","lanchonete","padaria","cafeteria","bar",
+    "café","cafe","bebida","suco","refrigerante","cerveja",
+
+    // delivery e mercado
+    "ifood","delivery","pedido comida",
+    "mercado","supermercado","atacadão","assai","extra","carrefour"
   ],
+
   Transporte: [
-    "gasolina","abastecer","abasteci","combustível",
-    "uber","99","taxi","ônibus","carro","moto"
+    // verbos
+    "abasteci","abastecer","fui de uber","peguei uber","peguei 99",
+    "gastei com transporte","corrida",
+
+    // combustível
+    "gasolina","etanol","diesel","combustível","combustivel",
+    "posto","posto de gasolina","abastecimento",
+
+    // apps e meios
+    "uber","99","taxi",
+    "ônibus","onibus","metrô","metro","trem","passagem",
+
+    // carro
+    "estacionamento","pedágio","pedagio",
+    "oficina","mecânico","mecanico","manutenção",
+    "lavagem","lava jato","lavacar"
   ],
+
   Moradia: [
-    "aluguel","condomínio","luz","água","energia",
-    "internet","iptu"
+    // verbos
+    "paguei aluguel","paguei condomínio","conta de casa","gastei com casa",
+
+    // fixos
+    "aluguel","condomínio","condominio",
+    "luz","energia","conta de luz","conta de energia",
+    "água","agua","conta de água",
+    "internet","telefone","iptu",
+
+    // gás separado de gasolina
+    "gás","gas de cozinha","botijão","botijao",
+
+    // manutenção
+    "reparo","conserto","manutenção",
+    "faxina","limpeza","diarista"
   ],
+
   Saúde: [
-    "dentista","consulta","médico","medica",
-    "farmácia","remédio","hospital"
+    // verbos
+    "fui ao médico","consulta médica","gastei com saúde",
+
+    // profissionais
+    "médico","medico","dentista","psicólogo","psicologo",
+    "nutricionista","fisioterapia","terapia",
+
+    // locais e itens
+    "farmácia","farmacia","remédio","remedio",
+    "hospital","clínica","clinica",
+    "exame","checkup","raio-x","ultrassom","ressonância",
+
+    // plano
+    "plano de saúde","convênio","convenio","coparticipação"
   ],
+
+  Pets: [
+    // verbos
+    "gastei com pet","levei no veterinário",
+
+    // itens
+    "pet","cachorro","gato",
+    "ração","racao","areia gato",
+    "vacina","remédio pet",
+
+    // serviços
+    "veterinário","veterinario","petshop",
+    "banho","tosa","hotel pet","creche pet"
+  ],
+
+  Dívidas: [
+    // verbos
+    "paguei fatura","paguei dívida","parcelei","renegociei",
+
+    // cartão e contas
+    "fatura","cartão","cartao","cartão de crédito","cartao de credito",
+    "mínimo","pagamento mínimo","juros",
+
+    // cobranças
+    "boleto","financiamento","empréstimo","emprestimo",
+    "acordo","renegociação","parcelamento",
+    "atrasado","em atraso","consórcio","consorcio"
+  ],
+
+  Compras: [
+    // verbos
+    "comprei","fiz uma compra","pedido","encomenda",
+
+    // itens
+    "roupa","camisa","calça","calca","tênis","tenis","sapato",
+    "celular","notebook","computador","tablet","tv","televisão",
+
+    // lojas
+    "shopping","loja",
+    "amazon","shopee","mercado livre",
+    "magalu","casas bahia","americanas","shein"
+  ],
+
+  Lazer: [
+    // verbos
+    "saí","passei","viajei","gastei com lazer",
+
+    // atividades
+    "cinema","show","evento","festival",
+    "viagem","passeio","bar","balada","churrasco",
+
+    // turismo
+    "hotel","airbnb","resort",
+
+    // entretenimento
+    "jogo","game","videogame","psn","xbox"
+  ],
+
+  Educação: [
+    // verbos
+    "estudei","paguei curso","mensalidade faculdade",
+
+    // educação
+    "curso","faculdade","aula","escola",
+    "mensalidade","material","apostila","livro",
+
+    // plataformas
+    "ead","online","udemy","alura","coursera","hotmart",
+    "mba","pós","pos","especialização","especializacao"
+  ],
+
+  Investimentos: [
+    // verbos
+    "investi","apliquei","fiz aporte","aporte mensal",
+
+    // produtos
+    "investimento","ação","acoes","fundo","fii",
+    "cdb","lci","lca","tesouro","tesouro direto",
+
+    // outros
+    "previdência","previdencia","poupança","poupanca",
+    "cripto","bitcoin","renda fixa","renda variável"
+  ],
+
   Assinaturas: [
-    "assinatura","chatgpt","chatgpt pro",
-    "netflix","spotify","hostinger","prime"
+    // verbos
+    "assinatura","mensalidade","plano mensal",
+
+    // streaming
+    "netflix","spotify","prime","youtube","youtube premium",
+    "apple music","deezer",
+
+    // serviços
+    "chatgpt","chatgpt pro","hostinger",
+    "icloud","google one","dropbox",
+    "office","office 365","canva","notion","figma"
   ]
 };
 
@@ -121,28 +277,27 @@ const classifyCategory = (text) => {
 };
 
 /* ===============================
-   SEGMENTAÇÃO TEMPORAL (CORE)
+   SEGMENTAÇÃO TEMPORAL
 ================================ */
 const segmentByTime = (text) => {
   const normalized = text
     .replace(/,/g, " | ")
     .replace(/\s+e\s+/gi, " | ");
 
-  const rawParts = normalized.split("|").map(p => p.trim()).filter(Boolean);
-
+  const parts = normalized.split("|").map(p => p.trim()).filter(Boolean);
   const segments = [];
   let currentDate = null;
 
-  for (const part of rawParts) {
-    const date = parseDateFromText(part);
-    if (date) currentDate = date;
+  for (const p of parts) {
+    const d = parseDateFromText(p);
+    if (d) currentDate = d;
 
     segments.push({
-      text: part
-        .replace(/ontem|hoje|amanhã/gi, "")
+      text: p
+        .replace(/ontem|hoje|amanhã|amanha/gi, "")
         .replace(/dia\s+\d{1,2}\s+de\s+\w+/gi, "")
         .trim(),
-      date: date ?? currentDate ?? todayISO()
+      date: d ?? currentDate ?? todayISO()
     });
   }
 
@@ -174,7 +329,7 @@ const extractExpenses = (text) => {
 
     expenses.push({
       description,
-      amount: value ?? null,
+      amount: value,
       date: seg.date
     });
   }
@@ -189,7 +344,7 @@ const isConfirmation = (msg) =>
   ["sim","ok","confirmar","pode"].includes(msg.trim().toLowerCase());
 
 const isAbortText = (msg) =>
-  ["sei lá","qualquer coisa","umas coisas"].some(k =>
+  ["sei lá","sei la","qualquer coisa","umas coisas"].some(k =>
     msg.toLowerCase().includes(k)
   );
 
@@ -200,20 +355,18 @@ app.post("/oraculo", async (req, res) => {
   try {
     const { message, user_id } = req.body;
     if (!message || !user_id) {
-      return res.json({ reply: "⚠️ Usuário não identificado." });
+      return res.json({ reply: ORACLE.askClarify });
     }
 
     if (!memory[user_id]) {
       memory[user_id] = { state: "idle", expenses: [] };
     }
 
-    // Texto confuso → aborta
     if (isAbortText(message)) {
       memory[user_id] = { state: "idle", expenses: [] };
-      return res.json({ reply: "🤔 Não consegui entender. Pode explicar melhor?" });
+      return res.json({ reply: ORACLE.aborted });
     }
 
-    // CONFIRMAÇÃO
     if (memory[user_id].state === "preview") {
       if (isConfirmation(message)) {
         for (const e of memory[user_id].expenses) {
@@ -229,29 +382,23 @@ app.post("/oraculo", async (req, res) => {
             is_recurring: false
           });
         }
-
         memory[user_id] = { state: "idle", expenses: [] };
-        return res.json({ reply: "✅ Despesas registradas com sucesso." });
+        return res.json({ reply: ORACLE.saved });
       }
 
-      // Qualquer outra coisa cancela preview
       memory[user_id] = { state: "idle", expenses: [] };
     }
 
-    // NOVA FRASE → sempre reseta estado
     memory[user_id] = { state: "idle", expenses: [] };
 
     const extracted = extractExpenses(message);
-
     if (!extracted.length) {
-      return res.json({
-        reply: "🤔 Não consegui identificar despesas. Pode reformular?"
-      });
+      return res.json({ reply: ORACLE.nothingFound });
     }
 
     memory[user_id].expenses = extracted.map(e => ({
       description: e.description,
-      amount: e.amount,
+      amount: e.amount ?? null,
       category: classifyCategory(e.description),
       date: e.date
     }));
@@ -265,14 +412,14 @@ app.post("/oraculo", async (req, res) => {
       } — ${e.category}\n`;
     });
 
-    preview += `\nResponda "sim" para confirmar.`;
+    preview += `\n${ORACLE.askConfirm}`;
 
     return res.json({ reply: preview });
 
   } catch (err) {
     console.error(err);
     return res.status(500).json({
-      reply: "⚠️ O Oráculo teve uma visão turva."
+      reply: "🌪️ As visões se romperam por um instante…"
     });
   }
 });
@@ -284,4 +431,3 @@ const PORT = process.env.PORT || 8080;
 app.listen(PORT, () => {
   console.log("🔮 Oráculo Financeiro ativo na porta " + PORT);
 });
-
