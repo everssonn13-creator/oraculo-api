@@ -31,6 +31,13 @@ app.use((req, res, next) => {
    MEMÓRIA CURTA
 ================================ */
 const memory = {};
+/*
+memory[user_id] = {
+  expenses: [],
+  awaitingConfirmation: false,
+  pendingQuestion: null
+}
+*/
 
 /* ===============================
    DATAS
@@ -47,47 +54,110 @@ const resolveDate = (text) => {
   }
 
   if (t.includes("hoje")) return todayISO();
+
   if (t.includes("ontem")) {
     now.setDate(now.getDate() - 1);
     return now.toISOString().split("T")[0];
+  }
+
+  const br = t.match(/dia\s(\d{1,2})\sde\s(janeiro|fevereiro|março|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro)/i);
+  if (br) {
+    const months = {
+      janeiro: 0, fevereiro: 1, março: 2, abril: 3, maio: 4, junho: 5,
+      julho: 6, agosto: 7, setembro: 8, outubro: 9, novembro: 10, dezembro: 11
+    };
+    const d = new Date();
+    d.setMonth(months[br[2]]);
+    d.setDate(Number(br[1]));
+    return d.toISOString().split("T")[0];
   }
 
   return todayISO();
 };
 
 /* ===============================
-   CATEGORIAS (MELHORADAS)
+   CATEGORIAS (DICIONÁRIO RICO)
 ================================ */
-const CATEGORIES = [
-  { name: "Transporte", keywords: ["uber", "99", "taxi", "ônibus", "metro", "gasolina", "combustivel", "abasteci"] },
-  { name: "Alimentação", keywords: ["lanche", "pastel", "marmita", "comida", "restaurante", "mercado"] },
-  { name: "Saúde", keywords: ["farmacia", "remedio", "medico", "dentista", "consulta", "odontologia"] },
-  { name: "Moradia", keywords: ["aluguel", "condominio", "luz", "agua", "internet"] },
-  { name: "Compras", keywords: ["roupa", "tenis", "notebook"] }
-];
+const CATEGORY_MAP = {
+  Alimentação: [
+    "lanche","pastel","marmita","comida","refeição","almoço","janta","jantar",
+    "café","padaria","restaurante","lanchonete","pizzaria","hamburguer",
+    "pizza","ifood","delivery","mercado","supermercado","bebida","cerveja"
+  ],
+  Transporte: [
+    "gasolina","abastecer","abasteci","combustível","etanol","diesel",
+    "posto","uber","99","taxi","ônibus","metro","passagem",
+    "estacionamento","pedágio","ipva","seguro","lavagem","lava jato"
+  ],
+  Moradia: [
+    "aluguel","condomínio","luz","energia","água","gás",
+    "internet","wi-fi","iptu","reforma","manutenção"
+  ],
+  Saúde: [
+    "dentista","consulta","médico","medica","hospital","exame",
+    "farmácia","remédio","medicamento","plano de saúde",
+    "psicólogo","terapia","fisioterapia","odontologia"
+  ],
+  Educação: [
+    "curso","faculdade","universidade","mensalidade","escola",
+    "livro","material","udemy","alura","certificação"
+  ],
+  Lazer: [
+    "cinema","filme","show","evento","viagem","passeio",
+    "bar","balada","jogo","games","netflix","spotify"
+  ],
+  Compras: [
+    "roupa","camisa","calça","tênis","sapato","celular",
+    "notebook","computador","fone","amazon","shopee"
+  ],
+  Assinaturas: [
+    "assinatura","mensalidade","chatgpt","chatgpt pro","openai",
+    "hostinger","spotify","netflix","prime","icloud",
+    "google drive","adobe","canva"
+  ],
+  Dívidas: [
+    "empréstimo","emprestimo","financiamento","parcela",
+    "fatura","cartão","juros","boleto","acordo"
+  ],
+  Investimentos: [
+    "investimento","aplicação","poupança","tesouro",
+    "cdb","ações","bolsa","bitcoin","cripto"
+  ],
+  Pets: [
+    "pet","cachorro","gato","ração","veterinário",
+    "vacina","banho","tosa","petshop"
+  ],
+  Presentes: [
+    "presente","lembrança","aniversário","natal",
+    "flores","chocolate"
+  ]
+};
 
 const classifyCategory = (text) => {
   const t = text.toLowerCase();
-  for (const c of CATEGORIES) {
-    if (c.keywords.some(k => t.includes(k))) return c.name;
+  let best = { name: "Outros", score: 0 };
+
+  for (const [cat, words] of Object.entries(CATEGORY_MAP)) {
+    let score = 0;
+    for (const w of words) {
+      if (t.includes(w)) score++;
+    }
+    if (score > best.score) best = { name: cat, score };
   }
-  return "Outros";
+
+  return best.name;
 };
 
 /* ===============================
-   LIMPEZA DE TEXTO
+   EXTRAÇÃO MÚLTIPLA
 ================================ */
-const cleanDescription = (text) => {
-  return text
+const cleanDescription = (text) =>
+  text
     .toLowerCase()
-    .replace(/comprei|gastei|paguei|abasteci|valor|por|de|com|um|uma|dois|duas/gi, "")
+    .replace(/comprei|gastei|paguei|abasteci|tenho que pagar|valor|por|de|com|um|uma|dois|duas/gi, "")
     .replace(/\s+/g, " ")
     .trim();
-};
 
-/* ===============================
-   EXTRAÇÃO MÚLTIPLA (CORE)
-================================ */
 const extractExpenses = (text) => {
   const normalized = text
     .toLowerCase()
@@ -98,26 +168,30 @@ const extractExpenses = (text) => {
   const parts = normalized.split("|");
   const expenses = [];
 
-  for (const part of parts) {
-    const match = part.match(/(.+?)\s+(\d+[.,]?\d*)/);
-    if (!match) continue;
-
-    const descricao = cleanDescription(match[1]);
-    const valor = Number(match[2].replace(",", "."));
-
-    if (descricao && valor > 0) {
-      expenses.push({ descricao, valor });
+  for (const p of parts) {
+    const match = p.match(/(.+?)\s+(\d+[.,]?\d*)/);
+    if (!match) {
+      const desc = cleanDescription(p);
+      if (desc) {
+        expenses.push({ descricao: desc, valor: null });
+      }
+      continue;
     }
+
+    expenses.push({
+      descricao: cleanDescription(match[1]),
+      valor: Number(match[2].replace(",", "."))
+    });
   }
 
-  return expenses;
+  return expenses.filter(e => e.descricao);
 };
 
 /* ===============================
    CONFIRMAÇÃO
 ================================ */
 const isConfirmation = (msg) =>
-  ["sim", "confirmar", "ok", "pode", "isso"].includes(msg.trim().toLowerCase());
+  ["sim","confirmar","ok","pode","isso"].includes(msg.trim().toLowerCase());
 
 /* ===============================
    ROTA PRINCIPAL
@@ -133,9 +207,7 @@ app.post("/oraculo", async (req, res) => {
       memory[user_id] = { expenses: [], awaitingConfirmation: false };
     }
 
-    /* ===============================
-       CONFIRMAÇÃO
-    ================================ */
+    /* CONFIRMAÇÃO */
     if (memory[user_id].awaitingConfirmation && isConfirmation(message)) {
       for (const e of memory[user_id].expenses) {
         await supabase.from("despesas").insert({
@@ -155,20 +227,18 @@ app.post("/oraculo", async (req, res) => {
       return res.json({ reply: "✅ Despesas registradas com sucesso." });
     }
 
-    /* ===============================
-       EXTRAÇÃO
-    ================================ */
+    /* EXTRAÇÃO */
     const extracted = extractExpenses(message);
     if (!extracted.length) {
-      return res.json({ reply: "⚠️ Não identifiquei despesas válidas." });
+      return res.json({ reply: "⚠️ Não consegui identificar despesas." });
     }
 
     const date = resolveDate(message);
 
-    memory[user_id].expenses = extracted.map(d => ({
-      description: d.descricao,
-      amount: d.valor,
-      category: classifyCategory(d.descricao),
+    memory[user_id].expenses = extracted.map(e => ({
+      description: e.descricao,
+      amount: e.valor ?? null,
+      category: classifyCategory(e.descricao),
       date
     }));
 
@@ -176,7 +246,9 @@ app.post("/oraculo", async (req, res) => {
 
     let preview = "🧾 Posso registrar assim?\n\n";
     memory[user_id].expenses.forEach((e, i) => {
-      preview += `${i + 1}) ${e.description} — R$ ${e.amount} — ${e.category}\n`;
+      preview += `${i + 1}) ${e.description} — ${
+        e.amount === null ? "Valor não informado" : `R$ ${e.amount}`
+      } — ${e.category}\n`;
     });
 
     preview += `\n📅 Data: ${date}\n\nResponda "sim" para confirmar.`;
