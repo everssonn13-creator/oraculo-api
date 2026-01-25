@@ -41,27 +41,29 @@ const resolveDate = (text) => {
   const t = text.toLowerCase();
   const now = new Date();
 
+  if (t.includes("amanhã")) {
+    now.setDate(now.getDate() + 1);
+    return now.toISOString().split("T")[0];
+  }
+
   if (t.includes("hoje")) return todayISO();
   if (t.includes("ontem")) {
     now.setDate(now.getDate() - 1);
     return now.toISOString().split("T")[0];
   }
 
-  const br = t.match(/(\d{2})\/(\d{2})\/(\d{4})/);
-  if (br) return `${br[3]}-${br[2]}-${br[1]}`;
-
   return todayISO();
 };
 
 /* ===============================
-   CATEGORIAS
+   CATEGORIAS (MELHORADAS)
 ================================ */
 const CATEGORIES = [
-  { name: "Transporte", keywords: ["uber", "99", "taxi", "ônibus", "metro", "gasolina"] },
-  { name: "Alimentação", keywords: ["lanche", "marmita", "comida", "restaurante", "mercado"] },
-  { name: "Compras", keywords: ["roupa", "tenis", "notebook"] },
+  { name: "Transporte", keywords: ["uber", "99", "taxi", "ônibus", "metro", "gasolina", "combustivel", "abasteci"] },
+  { name: "Alimentação", keywords: ["lanche", "pastel", "marmita", "comida", "restaurante", "mercado"] },
+  { name: "Saúde", keywords: ["farmacia", "remedio", "medico", "dentista", "consulta", "odontologia"] },
   { name: "Moradia", keywords: ["aluguel", "condominio", "luz", "agua", "internet"] },
-  { name: "Saúde", keywords: ["farmacia", "remedio", "medico"] }
+  { name: "Compras", keywords: ["roupa", "tenis", "notebook"] }
 ];
 
 const classifyCategory = (text) => {
@@ -73,24 +75,49 @@ const classifyCategory = (text) => {
 };
 
 /* ===============================
-   INTENÇÕES
+   LIMPEZA DE TEXTO
+================================ */
+const cleanDescription = (text) => {
+  return text
+    .toLowerCase()
+    .replace(/comprei|gastei|paguei|abasteci|valor|por|de|com|um|uma|dois|duas/gi, "")
+    .replace(/\s+/g, " ")
+    .trim();
+};
+
+/* ===============================
+   EXTRAÇÃO MÚLTIPLA (CORE)
+================================ */
+const extractExpenses = (text) => {
+  const normalized = text
+    .toLowerCase()
+    .replace(/,/g, " ")
+    .replace(/ e /g, " | ")
+    .replace(/ também /g, " | ");
+
+  const parts = normalized.split("|");
+  const expenses = [];
+
+  for (const part of parts) {
+    const match = part.match(/(.+?)\s+(\d+[.,]?\d*)/);
+    if (!match) continue;
+
+    const descricao = cleanDescription(match[1]);
+    const valor = Number(match[2].replace(",", "."));
+
+    if (descricao && valor > 0) {
+      expenses.push({ descricao, valor });
+    }
+  }
+
+  return expenses;
+};
+
+/* ===============================
+   CONFIRMAÇÃO
 ================================ */
 const isConfirmation = (msg) =>
   ["sim", "confirmar", "ok", "pode", "isso"].includes(msg.trim().toLowerCase());
-
-/* ===============================
-   EXTRAÇÃO SEM IA (CRÍTICO)
-================================ */
-const extractExpenseSimple = (text) => {
-  // gasolina 200 | lanche 22 | mercado 150
-  const match = text.match(/(.+?)\s+(\d+[.,]?\d*)/i);
-  if (!match) return null;
-
-  return {
-    descricao: match[1].trim(),
-    valor: Number(match[2].replace(",", "."))
-  };
-};
 
 /* ===============================
    ROTA PRINCIPAL
@@ -125,63 +152,22 @@ app.post("/oraculo", async (req, res) => {
       }
 
       memory[user_id] = { expenses: [], awaitingConfirmation: false };
-      return res.json({ reply: "✅ Despesa registrada com sucesso." });
+      return res.json({ reply: "✅ Despesas registradas com sucesso." });
     }
 
     /* ===============================
-       EXTRAÇÃO (SEM IA PRIMEIRO)
+       EXTRAÇÃO
     ================================ */
-    let despesas = [];
-    const simple = extractExpenseSimple(message);
-
-    if (simple && simple.valor > 0) {
-      despesas.push(simple);
-    }
-
-    /* ===============================
-       FALLBACK IA (SÓ SE PRECISAR)
-    ================================ */
-    if (!despesas.length) {
-      const ai = await fetch("https://api.openai.com/v1/responses", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${process.env.OPENAI_API_KEY}`
-        },
-        body: JSON.stringify({
-          model: "gpt-5-mini",
-          input: `Extraia despesas e retorne JSON no formato:
-{
-  "despesas": [
-    { "descricao": "string", "valor": number }
-  ]
-}
-Texto: ${message}`
-        })
-      });
-
-      const aiData = await ai.json();
-      const text =
-        aiData.output_text ||
-        aiData.output?.[0]?.content?.[0]?.text;
-
-      if (text) {
-        try {
-          const parsed = JSON.parse(text);
-          if (parsed?.despesas?.length) despesas = parsed.despesas;
-        } catch {}
-      }
-    }
-
-    if (!despesas.length) {
-      return res.json({ reply: "⚠️ Não identifiquei nenhuma despesa válida." });
+    const extracted = extractExpenses(message);
+    if (!extracted.length) {
+      return res.json({ reply: "⚠️ Não identifiquei despesas válidas." });
     }
 
     const date = resolveDate(message);
 
-    memory[user_id].expenses = despesas.map(d => ({
+    memory[user_id].expenses = extracted.map(d => ({
       description: d.descricao,
-      amount: Number(d.valor),
+      amount: d.valor,
       category: classifyCategory(d.descricao),
       date
     }));
