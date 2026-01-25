@@ -30,22 +30,24 @@ app.use((req, res, next) => {
    PERSONALIDADE DO ORÁCULO
 ================================ */
 const ORACLE = {
-  askClarify: "🔮 Minha visão ficou turva… pode me dar mais detalhes?",
-  askConfirm: "Se minha leitura estiver correta, diga **\"sim\"**.",
+  askClarify: "🔮 Minha visão ficou turva… pode detalhar melhor?",
+  askConfirm: "Se minha leitura estiver correta, responda **\"sim\"**.",
   saved: "📜 As despesas foram seladas no livro financeiro.",
-  nothingFound: "🌫️ Não consegui enxergar nenhuma despesa nessa mensagem.",
-  aborted: "🌫️ As palavras se dispersaram… tente novamente com mais clareza.",
+  nothingFound: "🌫️ Não identifiquei despesas claras nessa mensagem.",
+  aborted: "🌫️ A visão se dissipou. Vamos tentar novamente.",
   noData: "🌫️ Ainda não há registros suficientes para essa análise."
 };
 
 /* ===============================
-   MEMÓRIA (CURTA)
+   MEMÓRIA CURTA (CONVERSACIONAL)
 ================================ */
 const memory = {};
+
 /*
 memory[user_id] = {
   state: "idle" | "preview",
-  expenses: []
+  expenses: [],
+  reportContext?: { type, category }
 }
 */
 
@@ -54,27 +56,34 @@ memory[user_id] = {
 ================================ */
 const todayISO = () => new Date().toISOString().split("T")[0];
 
+const extractMonthFromText = (text) => {
+  const months = {
+    janeiro: 1, fevereiro: 2, março: 3, abril: 4,
+    maio: 5, junho: 6, julho: 7, agosto: 8,
+    setembro: 9, outubro: 10, novembro: 11, dezembro: 12
+  };
+  const t = text.toLowerCase();
+  for (const m in months) {
+    if (t.includes(m)) return months[m];
+  }
+  return null;
+};
+
 const parseDateFromText = (text) => {
   const t = text.toLowerCase();
-
   if (t.includes("ontem")) {
     const d = new Date();
     d.setDate(d.getDate() - 1);
     return d.toISOString().split("T")[0];
   }
-
-  if (t.includes("hoje")) return todayISO();
-
   if (t.includes("amanhã") || t.includes("amanha")) {
     const d = new Date();
     d.setDate(d.getDate() + 1);
     return d.toISOString().split("T")[0];
   }
+  if (t.includes("hoje")) return todayISO();
 
-  const match = t.match(
-    /dia\s+(\d{1,2})\s+de\s+(janeiro|fevereiro|março|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro)/
-  );
-
+  const match = t.match(/dia\s+(\d{1,2})\s+de\s+(janeiro|fevereiro|março|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro)/);
   if (match) {
     const months = {
       janeiro: 0, fevereiro: 1, março: 2, abril: 3,
@@ -91,13 +100,12 @@ const parseDateFromText = (text) => {
 };
 
 /* ===============================
-   CATEGORIAS (COMPLETAS)
+   CATEGORIAS (EXPANDIDAS)
 ================================ */
 const CATEGORY_MAP = {
   Alimentação: [
-    "comi","almocei","jantei","lanchei","pedi comida","comer fora","comi fora",
-    "lanche","pastel","pizza","hamburguer","hambúrguer","marmita","pf",
-    "restaurante","lanchonete","padaria","bar",
+    "comi","almocei","jantei","lanche","pastel","pizza","hamburguer","hambúrguer",
+    "marmita","pf","restaurante","lanchonete","padaria","bar",
     "ifood","delivery","mercado","supermercado"
   ],
   Transporte: [
@@ -110,9 +118,8 @@ const CATEGORY_MAP = {
     "água","agua","internet","iptu","gás","gas"
   ],
   Saúde: [
-    "dentista","consulta","médico","medico",
-    "farmácia","farmacia","remédio","remedio",
-    "hospital","exame","terapia"
+    "dentista","consulta","médico","medico","farmácia","farmacia",
+    "remédio","remedio","hospital","exame","terapia"
   ],
   Pets: [
     "pet","cachorro","gato","ração","racao",
@@ -127,7 +134,7 @@ const CATEGORY_MAP = {
     "amazon","shopee","mercado livre"
   ],
   Lazer: [
-    "cinema","show","viagem","passeio","bar","balada"
+    "cinema","show","viagem","passeio","balada"
   ],
   Educação: [
     "curso","faculdade","escola","livro","mensalidade"
@@ -144,15 +151,11 @@ const CATEGORY_MAP = {
 const classifyCategory = (text) => {
   const t = text.toLowerCase();
   let best = { cat: "Outros", score: 0 };
-
   for (const [cat, words] of Object.entries(CATEGORY_MAP)) {
     let score = 0;
-    for (const w of words) {
-      if (t.includes(w)) score++;
-    }
+    words.forEach(w => { if (t.includes(w)) score++; });
     if (score > best.score) best = { cat, score };
   }
-
   return best.cat;
 };
 
@@ -163,91 +166,78 @@ const isConfirmation = (msg) =>
   ["sim","ok","confirmar","pode"].includes(msg.trim().toLowerCase());
 
 const isAbortText = (msg) =>
-  ["sei lá","sei la","qualquer coisa","umas coisas"].some(k =>
+  ["sei lá","sei la","qualquer coisa"].some(k => msg.toLowerCase().includes(k));
+
+const isCategoryReportRequest = (msg) =>
+  ["gastei com","gastos com","quanto gastei com"].some(k =>
     msg.toLowerCase().includes(k)
   );
 
+const isGeneralReportRequest = (msg) =>
+  ["relatório geral","relatorio geral","relatório do mês","como foi meu mês","analise do mes","análise do mês"]
+    .some(k => msg.toLowerCase().includes(k));
+
 /* ===============================
-   RELATÓRIO POR CATEGORIA
+   DIAGNÓSTICO FINANCEIRO
 ================================ */
-const isCategoryReportRequest = (msg) => {
-  const t = msg.toLowerCase();
-  return (
-    t.includes("quanto gastei com") ||
-    t.includes("gastei com") ||
-    t.includes("gastos com") ||
-    t.includes("total com")
-  );
-};
+const buildMonthlyDiagnosis = async (user_id, month) => {
+  const year = new Date().getFullYear();
+  const start = `${year}-${String(month).padStart(2,"0")}-01`;
+  const end = `${year}-${String(month).padStart(2,"0")}-31`;
 
-const extractCategoryFromText = (msg) => {
-  const t = msg.toLowerCase();
-  for (const cat of Object.keys(CATEGORY_MAP)) {
-    if (t.includes(cat.toLowerCase())) return cat;
-  }
-  return null;
-};
-
-const buildCategoryReport = async (user_id, category) => {
-  const { data, error } = await supabase
+  const { data } = await supabase
     .from("despesas")
-    .select("amount")
+    .select("amount, category")
     .eq("user_id", user_id)
-    .eq("category", category);
+    .gte("expense_date", start)
+    .lte("expense_date", end);
 
-  if (error || !data || !data.length) return null;
+  if (!data || !data.length) return null;
 
   let total = 0;
-  let count = 0;
-  for (const d of data) {
-    if (d.amount == null) continue;
+  const byCategory = {};
+  data.forEach(d => {
+    if (d.amount == null) return;
     total += Number(d.amount);
-    count++;
-  }
+    byCategory[d.category] = (byCategory[d.category] || 0) + Number(d.amount);
+  });
 
-  return { total, count };
+  const ranking = Object.entries(byCategory)
+    .map(([cat, val]) => ({
+      category: cat,
+      value: val,
+      percent: ((val / total) * 100).toFixed(1)
+    }))
+    .sort((a,b) => b.value - a.value);
+
+  return { total, ranking, count: data.length };
 };
 
 /* ===============================
-   SEGMENTAÇÃO + EXTRAÇÃO
+   EXTRAÇÃO DE DESPESAS
 ================================ */
-const segmentByTime = (text) => {
-  const normalized = text.replace(/,/g, " | ").replace(/\s+e\s+/gi, " | ");
-  const parts = normalized.split("|").map(p => p.trim()).filter(Boolean);
-
-  let currentDate = null;
-  return parts.map(p => {
-    const d = parseDateFromText(p);
-    if (d) currentDate = d;
-    return {
-      text: p.replace(/ontem|hoje|amanhã|amanha/gi, "").trim(),
-      date: d ?? currentDate ?? todayISO()
-    };
-  });
-};
-
 const extractExpenses = (text) => {
-  const segments = segmentByTime(text);
+  const parts = text.replace(/,| e /gi," | ").split("|");
   const expenses = [];
 
-  for (const seg of segments) {
-    const tokens = seg.text.split(" ");
+  parts.forEach(p => {
+    const tokens = p.trim().split(" ");
     let value = null;
     let desc = [];
-
-    for (const tok of tokens) {
-      if (/^\d+([.,]\d+)?$/.test(tok)) {
+    tokens.forEach(tok => {
+      if (/^\d+([.,]\d+)?$/.test(tok) && value === null) {
         value = Number(tok.replace(",", "."));
-        break;
+      } else {
+        desc.push(tok);
       }
-      desc.push(tok);
-    }
-
-    const description = desc.join(" ").trim();
-    if (!description) continue;
-
-    expenses.push({ description, amount: value, date: seg.date });
-  }
+    });
+    if (!desc.length) return;
+    expenses.push({
+      description: desc.join(" "),
+      amount: value,
+      date: parseDateFromText(p) || todayISO()
+    });
+  });
 
   return expenses;
 };
@@ -258,61 +248,54 @@ const extractExpenses = (text) => {
 app.post("/oraculo", async (req, res) => {
   try {
     const { message, user_id } = req.body;
-    if (!message || !user_id) {
-      return res.json({ reply: ORACLE.askClarify });
-    }
+    if (!message || !user_id) return res.json({ reply: ORACLE.askClarify });
 
-    if (isAbortText(message)) {
-      memory[user_id] = { state: "idle", expenses: [] };
-      return res.json({ reply: ORACLE.aborted });
-    }
+    memory[user_id] ||= { state: "idle", expenses: [] };
 
-    if (isCategoryReportRequest(message)) {
-      const category = extractCategoryFromText(message);
-      if (!category) {
-        return res.json({ reply: "🔮 Qual categoria deseja analisar?" });
-      }
+    // DIAGNÓSTICO GERAL
+    if (isGeneralReportRequest(message)) {
+      const month = extractMonthFromText(message);
+      if (!month) return res.json({ reply: "🔮 Qual mês deseja analisar?" });
 
-      const report = await buildCategoryReport(user_id, category);
-      if (!report) {
-        return res.json({ reply: ORACLE.noData });
-      }
+      const report = await buildMonthlyDiagnosis(user_id, month);
+      if (!report) return res.json({ reply: ORACLE.noData });
 
-      return res.json({
-        reply:
-          `📊 **Leitura de ${category}**\n\n` +
-          `💰 Total gasto: R$ ${report.total.toFixed(2)}\n` +
-          `📄 Registros considerados: ${report.count}\n\n` +
-          `🔮 Posso analisar outras categorias se desejar.`
+      let text = `📊 **Diagnóstico Financeiro — ${message}**\n\n`;
+      text += `💰 Total gasto: R$ ${report.total.toFixed(2)}\n`;
+      text += `📄 Registros: ${report.count}\n\n`;
+      text += `🏆 Onde mais drenou recursos:\n`;
+      report.ranking.forEach((r,i)=>{
+        text += `${i+1}) ${r.category} — R$ ${r.value.toFixed(2)} (${r.percent}%)\n`;
       });
+      text += `\n🔮 **Leitura do Oráculo:**\n`;
+      text += report.ranking[0].percent > 40
+        ? "Uma única categoria domina seus gastos. Ajustes nela geram grande impacto."
+        : "Seus gastos estão relativamente equilibrados, mas há margem para otimização.";
+
+      return res.json({ reply: text });
     }
 
-    if (!memory[user_id]) memory[user_id] = { state: "idle", expenses: [] };
-
-    if (memory[user_id].state === "preview") {
-      if (isConfirmation(message)) {
-        for (const e of memory[user_id].expenses) {
-          await supabase.from("despesas").insert({
-            user_id,
-            description: e.description,
-            amount: e.amount,
-            category: e.category,
-            expense_date: e.date,
-            data_vencimento: e.date,
-            status: "pendente",
-            expense_type: "Variável"
-          });
-        }
-        memory[user_id] = { state: "idle", expenses: [] };
-        return res.json({ reply: ORACLE.saved });
+    // CONFIRMAÇÃO
+    if (memory[user_id].state === "preview" && isConfirmation(message)) {
+      for (const e of memory[user_id].expenses) {
+        await supabase.from("despesas").insert({
+          user_id,
+          description: e.description,
+          amount: e.amount,
+          category: e.category,
+          expense_date: e.date,
+          data_vencimento: e.date,
+          status: "pendente",
+          expense_type: "Variável"
+        });
       }
       memory[user_id] = { state: "idle", expenses: [] };
+      return res.json({ reply: ORACLE.saved });
     }
 
+    // EXTRAÇÃO
     const extracted = extractExpenses(message);
-    if (!extracted.length) {
-      return res.json({ reply: ORACLE.nothingFound });
-    }
+    if (!extracted.length) return res.json({ reply: ORACLE.nothingFound });
 
     memory[user_id].expenses = extracted.map(e => ({
       ...e,
@@ -321,8 +304,8 @@ app.post("/oraculo", async (req, res) => {
     memory[user_id].state = "preview";
 
     let preview = "🧾 Posso registrar assim?\n\n";
-    memory[user_id].expenses.forEach((e, i) => {
-      preview += `${i + 1}) ${e.description} — ${
+    memory[user_id].expenses.forEach((e,i)=>{
+      preview += `${i+1}) ${e.description} — ${
         e.amount == null ? "Valor não informado" : `R$ ${e.amount}`
       } — ${e.category}\n`;
     });
@@ -332,7 +315,7 @@ app.post("/oraculo", async (req, res) => {
 
   } catch (err) {
     console.error(err);
-    return res.status(500).json({ reply: "🌪️ As visões se romperam por um instante…" });
+    return res.status(500).json({ reply: "🌪️ O Oráculo perdeu o foco por um instante." });
   }
 });
 
