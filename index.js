@@ -27,13 +27,13 @@ app.use((req, res, next) => {
 });
 
 /* ===============================
-   MEMÓRIA CURTA
+   MEMÓRIA (ESTADO REAL)
 ================================ */
 const memory = {};
 /*
 memory[user_id] = {
-  expenses: [],
-  awaitingConfirmation: false
+  state: "idle" | "preview",
+  expenses: []
 }
 */
 
@@ -42,7 +42,7 @@ memory[user_id] = {
 ================================ */
 const todayISO = () => new Date().toISOString().split("T")[0];
 
-const parseExplicitDate = (text) => {
+const parseDateFromText = (text) => {
   const t = text.toLowerCase();
 
   if (t.includes("ontem")) {
@@ -51,9 +51,7 @@ const parseExplicitDate = (text) => {
     return d.toISOString().split("T")[0];
   }
 
-  if (t.includes("hoje")) {
-    return todayISO();
-  }
+  if (t.includes("hoje")) return todayISO();
 
   if (t.includes("amanhã")) {
     const d = new Date();
@@ -81,50 +79,29 @@ const parseExplicitDate = (text) => {
 };
 
 /* ===============================
-   CATEGORIAS (DICIONÁRIO FINAL)
+   CATEGORIAS (EXPANDIDAS)
 ================================ */
 const CATEGORY_MAP = {
   Alimentação: [
-    "lanche","pastel","marmita","comida","refeição","almoço","janta",
-    "restaurante","lanchonete","ifood","delivery","mercado","padaria"
+    "lanche","pastel","marmita","comida","refeição",
+    "almoço","janta","comi fora","comer fora",
+    "restaurante","lanchonete","ifood","mercado"
   ],
   Transporte: [
-    "gasolina","abastecer","abasteci","combustível","etanol","diesel",
-    "uber","99","taxi","ônibus","metro","passagem","estacionamento",
-    "carro","moto"
+    "gasolina","abastecer","abasteci","combustível",
+    "uber","99","taxi","ônibus","carro","moto"
   ],
   Moradia: [
-    "aluguel","condomínio","luz","energia","água","gás",
+    "aluguel","condomínio","luz","água","energia",
     "internet","iptu"
   ],
   Saúde: [
-    "dentista","consulta","médico","medica","farmácia","remédio",
-    "hospital","exame","terapia","psicólogo"
-  ],
-  Educação: [
-    "curso","faculdade","universidade","escola","livro","mensalidade"
+    "dentista","consulta","médico","medica",
+    "farmácia","remédio","hospital"
   ],
   Assinaturas: [
-    "assinatura","chatgpt","chatgpt pro","openai","netflix",
-    "spotify","hostinger","prime","icloud","google drive"
-  ],
-  Lazer: [
-    "cinema","show","viagem","bar","balada","jogo"
-  ],
-  Compras: [
-    "roupa","tenis","tênis","celular","notebook","amazon","shopee"
-  ],
-  Dívidas: [
-    "empréstimo","emprestimo","parcela","fatura","cartão","boleto"
-  ],
-  Investimentos: [
-    "investimento","aplicação","poupança","tesouro","cdb","ações"
-  ],
-  Pets: [
-    "pet","cachorro","gato","ração","veterinário","petshop"
-  ],
-  Presentes: [
-    "presente","aniversário","natal","flores"
+    "assinatura","chatgpt","chatgpt pro",
+    "netflix","spotify","hostinger","prime"
   ]
 };
 
@@ -144,65 +121,61 @@ const classifyCategory = (text) => {
 };
 
 /* ===============================
-   UTILIDADES NLP
+   SEGMENTAÇÃO TEMPORAL (CORE)
 ================================ */
-const normalizeText = (text) =>
-  text
-    .toLowerCase()
-    .replace(/[,;]/g, " ")
-    .replace(/\s+/g, " ")
-    .trim();
+const segmentByTime = (text) => {
+  const normalized = text
+    .replace(/,/g, " | ")
+    .replace(/\s+e\s+/gi, " | ");
 
-const isOnlyNumber = (text) =>
-  /^\d+([.,]\d+)?$/.test(text.trim());
+  const rawParts = normalized.split("|").map(p => p.trim()).filter(Boolean);
 
-const isAbortText = (text) =>
-  ["sei lá","qualquer coisa","umas coisas"].some(k =>
-    text.toLowerCase().includes(k)
-  );
+  const segments = [];
+  let currentDate = null;
+
+  for (const part of rawParts) {
+    const date = parseDateFromText(part);
+    if (date) currentDate = date;
+
+    segments.push({
+      text: part
+        .replace(/ontem|hoje|amanhã/gi, "")
+        .replace(/dia\s+\d{1,2}\s+de\s+\w+/gi, "")
+        .trim(),
+      date: date ?? currentDate ?? todayISO()
+    });
+  }
+
+  return segments;
+};
 
 /* ===============================
-   EXTRAÇÃO ROBUSTA (CORE)
+   EXTRAÇÃO DE DESPESAS
 ================================ */
-const extractExpenses = (originalText) => {
-  const text = normalizeText(originalText);
-
-  // Divide por contexto semântico
-  const blocks = text
-    .replace(/\s+e\s+/g, "|")
-    .split("|")
-    .map(b => b.trim())
-    .filter(Boolean);
-
+const extractExpenses = (text) => {
+  const segments = segmentByTime(text);
   const expenses = [];
 
-  for (const block of blocks) {
-    const date = parseExplicitDate(block);
-    const cleanBlock = block
-      .replace(/ontem|hoje|amanhã/gi, "")
-      .replace(/dia\s+\d{1,2}\s+de\s+\w+/gi, "")
-      .trim();
-
-    const tokens = cleanBlock.split(" ");
+  for (const seg of segments) {
+    const tokens = seg.text.split(" ");
     let value = null;
-    let descTokens = [];
+    let desc = [];
 
-    for (let i = 0; i < tokens.length; i++) {
-      if (/^\d+([.,]\d+)?$/.test(tokens[i])) {
-        value = Number(tokens[i].replace(",", "."));
+    for (const tok of tokens) {
+      if (/^\d+([.,]\d+)?$/.test(tok)) {
+        value = Number(tok.replace(",", "."));
         break;
       }
-      descTokens.push(tokens[i]);
+      desc.push(tok);
     }
 
-    const description = descTokens.join(" ").trim();
-
+    const description = desc.join(" ").trim();
     if (!description) continue;
 
     expenses.push({
       description,
       amount: value ?? null,
-      date: date ?? todayISO()
+      date: seg.date
     });
   }
 
@@ -210,10 +183,15 @@ const extractExpenses = (originalText) => {
 };
 
 /* ===============================
-   CONFIRMAÇÃO
+   HELPERS
 ================================ */
 const isConfirmation = (msg) =>
   ["sim","ok","confirmar","pode"].includes(msg.trim().toLowerCase());
+
+const isAbortText = (msg) =>
+  ["sei lá","qualquer coisa","umas coisas"].some(k =>
+    msg.toLowerCase().includes(k)
+  );
 
 /* ===============================
    ROTA PRINCIPAL
@@ -221,22 +199,22 @@ const isConfirmation = (msg) =>
 app.post("/oraculo", async (req, res) => {
   try {
     const { message, user_id } = req.body;
-
     if (!message || !user_id) {
       return res.json({ reply: "⚠️ Usuário não identificado." });
     }
 
-    if (isAbortText(message)) {
-      return res.json({
-        reply: "🤔 Não consegui entender. Pode explicar melhor?"
-      });
-    }
-
     if (!memory[user_id]) {
-      memory[user_id] = { expenses: [], awaitingConfirmation: false };
+      memory[user_id] = { state: "idle", expenses: [] };
     }
 
-    if (memory[user_id].awaitingConfirmation) {
+    // Texto confuso → aborta
+    if (isAbortText(message)) {
+      memory[user_id] = { state: "idle", expenses: [] };
+      return res.json({ reply: "🤔 Não consegui entender. Pode explicar melhor?" });
+    }
+
+    // CONFIRMAÇÃO
+    if (memory[user_id].state === "preview") {
       if (isConfirmation(message)) {
         for (const e of memory[user_id].expenses) {
           await supabase.from("despesas").insert({
@@ -252,20 +230,16 @@ app.post("/oraculo", async (req, res) => {
           });
         }
 
-        memory[user_id] = { expenses: [], awaitingConfirmation: false };
+        memory[user_id] = { state: "idle", expenses: [] };
         return res.json({ reply: "✅ Despesas registradas com sucesso." });
       }
 
-      return res.json({
-        reply: "❌ Ok, não salvei. O que você quer corrigir?"
-      });
+      // Qualquer outra coisa cancela preview
+      memory[user_id] = { state: "idle", expenses: [] };
     }
 
-    if (isOnlyNumber(message)) {
-      return res.json({
-        reply: "❓ Esse valor é referente a qual despesa?"
-      });
-    }
+    // NOVA FRASE → sempre reseta estado
+    memory[user_id] = { state: "idle", expenses: [] };
 
     const extracted = extractExpenses(message);
 
@@ -282,7 +256,7 @@ app.post("/oraculo", async (req, res) => {
       date: e.date
     }));
 
-    memory[user_id].awaitingConfirmation = true;
+    memory[user_id].state = "preview";
 
     let preview = "🧾 Posso registrar assim?\n\n";
     memory[user_id].expenses.forEach((e, i) => {
@@ -310,3 +284,4 @@ const PORT = process.env.PORT || 8080;
 app.listen(PORT, () => {
   console.log("🔮 Oráculo Financeiro ativo na porta " + PORT);
 });
+
