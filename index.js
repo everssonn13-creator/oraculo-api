@@ -34,11 +34,12 @@ const ORACLE = {
   askConfirm: "Se minha leitura estiver correta, diga **\"sim\"**.",
   saved: "📜 As despesas foram seladas no livro financeiro.",
   nothingFound: "🌫️ Não consegui enxergar nenhuma despesa nessa mensagem.",
-  aborted: "🌫️ As palavras se dispersaram… tente novamente com mais clareza."
+  aborted: "🌫️ As palavras se dispersaram… tente novamente com mais clareza.",
+  noData: "🌫️ Ainda não há registros suficientes para essa análise."
 };
 
 /* ===============================
-   MEMÓRIA (ESTADO)
+   MEMÓRIA (CURTA)
 ================================ */
 const memory = {};
 /*
@@ -90,110 +91,53 @@ const parseDateFromText = (text) => {
 };
 
 /* ===============================
-   CATEGORIAS (DICIONÁRIO COMPLETO)
+   CATEGORIAS (COMPLETAS)
 ================================ */
 const CATEGORY_MAP = {
   Alimentação: [
     "comi","almocei","jantei","lanchei","pedi comida","comer fora","comi fora",
-    "gastei com comida","gastei em comida",
-    "lanche","pastel","coxinha","pizza","hambúrguer","hamburguer","sushi","esfiha",
-    "marmita","pf","prato feito","self service","buffet","rodízio","rodizio",
-    "restaurante","lanchonete","padaria","cafeteria","bar",
-    "café","cafe","bebida","suco","refrigerante","cerveja",
-    "ifood","delivery","pedido comida",
-    "mercado","supermercado","atacadão","assai","extra","carrefour"
+    "lanche","pastel","pizza","hamburguer","hambúrguer","marmita","pf",
+    "restaurante","lanchonete","padaria","bar",
+    "ifood","delivery","mercado","supermercado"
   ],
-
   Transporte: [
-    "abasteci","abastecer","fui de uber","peguei uber","peguei 99",
-    "gastei com transporte","corrida",
-    "gasolina","etanol","diesel","combustível","combustivel",
-    "posto","posto de gasolina","abastecimento",
-    "uber","99","taxi","ônibus","onibus","metrô","metro","trem","passagem",
-    "estacionamento","pedágio","pedagio",
-    "oficina","mecânico","mecanico","manutenção",
-    "lavagem","lava jato","lavacar"
+    "abasteci","abastecer","gasolina","etanol","diesel",
+    "uber","99","taxi","ônibus","onibus","metrô","metro",
+    "estacionamento","pedágio","pedagio","carro"
   ],
-
   Moradia: [
-    "paguei aluguel","paguei condomínio","conta de casa","gastei com casa",
-    "aluguel","condomínio","condominio",
-    "luz","energia","conta de luz","conta de energia",
-    "água","agua","conta de água",
-    "internet","telefone","iptu",
-    "gás","gas de cozinha","botijão","botijao",
-    "reparo","conserto","manutenção",
-    "faxina","limpeza","diarista"
+    "aluguel","condomínio","condominio","luz","energia",
+    "água","agua","internet","iptu","gás","gas"
   ],
-
   Saúde: [
-    "fui ao médico","consulta médica","gastei com saúde",
-    "médico","medico","dentista","psicólogo","psicologo",
-    "nutricionista","fisioterapia","terapia",
+    "dentista","consulta","médico","medico",
     "farmácia","farmacia","remédio","remedio",
-    "hospital","clínica","clinica",
-    "exame","checkup","raio-x","ultrassom","ressonância",
-    "plano de saúde","convênio","convenio","coparticipação"
+    "hospital","exame","terapia"
   ],
-
   Pets: [
-    "gastei com pet","levei no veterinário",
-    "pet","cachorro","gato",
-    "ração","racao","areia gato",
-    "vacina","remédio pet",
-    "veterinário","veterinario","petshop",
-    "banho","tosa","hotel pet","creche pet"
+    "pet","cachorro","gato","ração","racao",
+    "veterinário","veterinario","petshop","banho","tosa"
   ],
-
   Dívidas: [
-    "paguei fatura","paguei dívida","parcelei","renegociei",
-    "fatura","cartão","cartao","cartão de crédito","cartao de credito",
-    "mínimo","pagamento mínimo","juros",
-    "boleto","financiamento","empréstimo","emprestimo",
-    "acordo","renegociação","parcelamento",
-    "atrasado","em atraso","consórcio","consorcio"
+    "fatura","cartão","cartao","boleto","juros",
+    "empréstimo","emprestimo","financiamento","parcela"
   ],
-
   Compras: [
-    "comprei","fiz uma compra","pedido","encomenda",
-    "roupa","camisa","calça","calca","tênis","tenis","sapato",
-    "celular","notebook","computador","tablet","tv","televisão",
-    "shopping","loja",
-    "amazon","shopee","mercado livre",
-    "magalu","casas bahia","americanas","shein"
+    "comprei","roupa","tenis","tênis","celular","notebook",
+    "amazon","shopee","mercado livre"
   ],
-
   Lazer: [
-    "saí","passei","viajei","gastei com lazer",
-    "cinema","show","evento","festival",
-    "viagem","passeio","bar","balada","churrasco",
-    "hotel","airbnb","resort",
-    "jogo","game","videogame","psn","xbox"
+    "cinema","show","viagem","passeio","bar","balada"
   ],
-
   Educação: [
-    "estudei","paguei curso","mensalidade faculdade",
-    "curso","faculdade","aula","escola",
-    "mensalidade","material","apostila","livro",
-    "ead","online","udemy","alura","coursera","hotmart",
-    "mba","pós","pos","especialização","especializacao"
+    "curso","faculdade","escola","livro","mensalidade"
   ],
-
   Investimentos: [
-    "investi","apliquei","fiz aporte","aporte mensal",
-    "investimento","ação","acoes","fundo","fii",
-    "cdb","lci","lca","tesouro","tesouro direto",
-    "previdência","previdencia","poupança","poupanca",
-    "cripto","bitcoin","renda fixa","renda variável"
+    "investimento","ação","acoes","cdb","tesouro","bitcoin"
   ],
-
   Assinaturas: [
-    "assinatura","mensalidade","plano mensal",
-    "netflix","spotify","prime","youtube","youtube premium",
-    "apple music","deezer",
-    "chatgpt","chatgpt pro","hostinger",
-    "icloud","google one","dropbox",
-    "office","office 365","canva","notion","figma"
+    "assinatura","mensalidade","netflix","spotify",
+    "chatgpt","chatgpt pro","hostinger","icloud"
   ]
 };
 
@@ -210,6 +154,58 @@ const classifyCategory = (text) => {
   }
 
   return best.cat;
+};
+
+/* ===============================
+   HELPERS
+================================ */
+const isConfirmation = (msg) =>
+  ["sim","ok","confirmar","pode"].includes(msg.trim().toLowerCase());
+
+const isAbortText = (msg) =>
+  ["sei lá","sei la","qualquer coisa","umas coisas"].some(k =>
+    msg.toLowerCase().includes(k)
+  );
+
+/* ===============================
+   RELATÓRIO POR CATEGORIA
+================================ */
+const isCategoryReportRequest = (msg) => {
+  const t = msg.toLowerCase();
+  return (
+    t.includes("quanto gastei com") ||
+    t.includes("gastei com") ||
+    t.includes("gastos com") ||
+    t.includes("total com")
+  );
+};
+
+const extractCategoryFromText = (msg) => {
+  const t = msg.toLowerCase();
+  for (const cat of Object.keys(CATEGORY_MAP)) {
+    if (t.includes(cat.toLowerCase())) return cat;
+  }
+  return null;
+};
+
+const buildCategoryReport = async (user_id, category) => {
+  const { data, error } = await supabase
+    .from("despesas")
+    .select("amount")
+    .eq("user_id", user_id)
+    .eq("category", category);
+
+  if (error || !data || !data.length) return null;
+
+  let total = 0;
+  let count = 0;
+  for (const d of data) {
+    if (d.amount == null) continue;
+    total += Number(d.amount);
+    count++;
+  }
+
+  return { total, count };
 };
 
 /* ===============================
@@ -266,10 +262,35 @@ app.post("/oraculo", async (req, res) => {
       return res.json({ reply: ORACLE.askClarify });
     }
 
+    if (isAbortText(message)) {
+      memory[user_id] = { state: "idle", expenses: [] };
+      return res.json({ reply: ORACLE.aborted });
+    }
+
+    if (isCategoryReportRequest(message)) {
+      const category = extractCategoryFromText(message);
+      if (!category) {
+        return res.json({ reply: "🔮 Qual categoria deseja analisar?" });
+      }
+
+      const report = await buildCategoryReport(user_id, category);
+      if (!report) {
+        return res.json({ reply: ORACLE.noData });
+      }
+
+      return res.json({
+        reply:
+          `📊 **Leitura de ${category}**\n\n` +
+          `💰 Total gasto: R$ ${report.total.toFixed(2)}\n` +
+          `📄 Registros considerados: ${report.count}\n\n` +
+          `🔮 Posso analisar outras categorias se desejar.`
+      });
+    }
+
     if (!memory[user_id]) memory[user_id] = { state: "idle", expenses: [] };
 
     if (memory[user_id].state === "preview") {
-      if (["sim","ok","confirmar"].includes(message.toLowerCase())) {
+      if (isConfirmation(message)) {
         for (const e of memory[user_id].expenses) {
           await supabase.from("despesas").insert({
             user_id,
@@ -279,8 +300,7 @@ app.post("/oraculo", async (req, res) => {
             expense_date: e.date,
             data_vencimento: e.date,
             status: "pendente",
-            expense_type: "Variável",
-            is_recurring: false
+            expense_type: "Variável"
           });
         }
         memory[user_id] = { state: "idle", expenses: [] };
@@ -303,11 +323,11 @@ app.post("/oraculo", async (req, res) => {
     let preview = "🧾 Posso registrar assim?\n\n";
     memory[user_id].expenses.forEach((e, i) => {
       preview += `${i + 1}) ${e.description} — ${
-        e.amount === null ? "Valor não informado" : `R$ ${e.amount}`
+        e.amount == null ? "Valor não informado" : `R$ ${e.amount}`
       } — ${e.category}\n`;
     });
-
     preview += `\n${ORACLE.askConfirm}`;
+
     return res.json({ reply: preview });
 
   } catch (err) {
