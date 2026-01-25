@@ -1,4 +1,5 @@
 import express from "express";
+import fetch from "node-fetch";
 import { createClient } from "@supabase/supabase-js";
 
 /* ===============================
@@ -29,294 +30,214 @@ app.use((req, res, next) => {
 /* ===============================
    PERSONALIDADE DO ORÁCULO
 ================================ */
-const ORACLE = {
-  askClarify: "🔮 Minha visão ficou turva… pode detalhar melhor?",
-  askConfirm: "Se minha leitura estiver correta, responda **\"sim\"**.",
-  saved: "📜 As despesas foram seladas no livro financeiro.",
-  nothingFound: "🌫️ Não identifiquei despesas claras nessa mensagem.",
-  aborted: "🌫️ A visão se dissipou. Vamos tentar novamente.",
-  noData: "🌫️ Ainda não há registros suficientes para essa análise."
+const ORACLE_TONE = {
+  intro: "🔮 O Oráculo observa seus fluxos financeiros...",
+  confirm: "Posso registrar assim?",
+  success: "✨ Registro selado no livro financeiro.",
+  doubt: "Hmm… essa visão não está clara. Pode explicar melhor?",
+  reflect: "Se quiser, posso refletir sobre isso com você."
 };
 
 /* ===============================
-   MEMÓRIA CURTA (CONVERSACIONAL)
+   MEMÓRIA
 ================================ */
 const memory = {};
-
-/*
-memory[user_id] = {
-  state: "idle" | "preview",
-  expenses: [],
-  reportContext?: { type, category }
-}
-*/
 
 /* ===============================
    DATAS
 ================================ */
 const todayISO = () => new Date().toISOString().split("T")[0];
 
-const extractMonthFromText = (text) => {
-  const months = {
-    janeiro: 1, fevereiro: 2, março: 3, abril: 4,
-    maio: 5, junho: 6, julho: 7, agosto: 8,
-    setembro: 9, outubro: 10, novembro: 11, dezembro: 12
-  };
+const resolveDate = (text) => {
   const t = text.toLowerCase();
-  for (const m in months) {
-    if (t.includes(m)) return months[m];
-  }
-  return null;
-};
+  const now = new Date();
 
-const parseDateFromText = (text) => {
-  const t = text.toLowerCase();
-  if (t.includes("ontem")) {
-    const d = new Date();
-    d.setDate(d.getDate() - 1);
-    return d.toISOString().split("T")[0];
-  }
-  if (t.includes("amanhã") || t.includes("amanha")) {
-    const d = new Date();
-    d.setDate(d.getDate() + 1);
-    return d.toISOString().split("T")[0];
-  }
   if (t.includes("hoje")) return todayISO();
+  if (t.includes("ontem")) {
+    now.setDate(now.getDate() - 1);
+    return now.toISOString().split("T")[0];
+  }
 
-  const match = t.match(/dia\s+(\d{1,2})\s+de\s+(janeiro|fevereiro|março|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro)/);
-  if (match) {
-    const months = {
-      janeiro: 0, fevereiro: 1, março: 2, abril: 3,
-      maio: 4, junho: 5, julho: 6, agosto: 7,
-      setembro: 8, outubro: 9, novembro: 10, dezembro: 11
-    };
+  const dia = t.match(/dia\s(\d{1,2})/);
+  const mes = t.match(/(janeiro|fevereiro|março|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro)/);
+  const meses = {
+    janeiro: 0, fevereiro: 1, março: 2, abril: 3, maio: 4, junho: 5,
+    julho: 6, agosto: 7, setembro: 8, outubro: 9, novembro: 10, dezembro: 11
+  };
+
+  if (dia && mes) {
     const d = new Date();
-    d.setMonth(months[match[2]]);
-    d.setDate(Number(match[1]));
+    d.setDate(Number(dia[1]));
+    d.setMonth(meses[mes[1]]);
     return d.toISOString().split("T")[0];
   }
 
-  return null;
+  return todayISO();
 };
 
 /* ===============================
    CATEGORIAS (EXPANDIDAS)
 ================================ */
-const CATEGORY_MAP = {
+const CATEGORIAS = { /* 👇 exatamente como você enviou */ 
   Alimentação: [
-    "comi","almocei","jantei","lanche","pastel","pizza","hamburguer","hambúrguer",
-    "marmita","pf","restaurante","lanchonete","padaria","bar",
-    "ifood","delivery","mercado","supermercado"
+    "comi","almocei","jantei","lanchei","pedi comida","comer fora","comi fora",
+    "lanche","pastel","coxinha","pizza","hambúrguer","hamburguer","sushi",
+    "marmita","pf","restaurante","lanchonete","padaria","ifood","mercado"
   ],
   Transporte: [
-    "abasteci","abastecer","gasolina","etanol","diesel",
-    "uber","99","taxi","ônibus","onibus","metrô","metro",
-    "estacionamento","pedágio","pedagio","carro"
+    "abasteci","abastecer","gasolina","etanol","diesel","uber","99","taxi",
+    "ônibus","metro","estacionamento","pedágio","oficina","lavagem"
   ],
   Moradia: [
-    "aluguel","condomínio","condominio","luz","energia",
-    "água","agua","internet","iptu","gás","gas"
+    "aluguel","condomínio","luz","energia","água","internet","iptu","gás"
   ],
   Saúde: [
-    "dentista","consulta","médico","medico","farmácia","farmacia",
-    "remédio","remedio","hospital","exame","terapia"
+    "médico","medico","dentista","consulta","farmácia","remédio","hospital"
   ],
   Pets: [
-    "pet","cachorro","gato","ração","racao",
-    "veterinário","veterinario","petshop","banho","tosa"
+    "pet","cachorro","gato","ração","veterinário","petshop"
   ],
   Dívidas: [
-    "fatura","cartão","cartao","boleto","juros",
-    "empréstimo","emprestimo","financiamento","parcela"
+    "fatura","cartão","boleto","empréstimo","financiamento","juros"
   ],
   Compras: [
-    "comprei","roupa","tenis","tênis","celular","notebook",
-    "amazon","shopee","mercado livre"
+    "comprei","roupa","tênis","celular","amazon","shopee","mercado livre"
   ],
   Lazer: [
-    "cinema","show","viagem","passeio","balada"
+    "cinema","show","viagem","bar","balada","hotel"
   ],
   Educação: [
-    "curso","faculdade","escola","livro","mensalidade"
+    "curso","faculdade","livro","udemy","alura"
   ],
   Investimentos: [
-    "investimento","ação","acoes","cdb","tesouro","bitcoin"
+    "investi","ação","fundo","cdb","tesouro","cripto"
   ],
   Assinaturas: [
-    "assinatura","mensalidade","netflix","spotify",
-    "chatgpt","chatgpt pro","hostinger","icloud"
+    "netflix","spotify","prime","chatgpt","hostinger","icloud","office"
   ]
 };
 
 const classifyCategory = (text) => {
   const t = text.toLowerCase();
-  let best = { cat: "Outros", score: 0 };
-  for (const [cat, words] of Object.entries(CATEGORY_MAP)) {
-    let score = 0;
-    words.forEach(w => { if (t.includes(w)) score++; });
-    if (score > best.score) best = { cat, score };
+  for (const cat in CATEGORIAS) {
+    if (CATEGORIAS[cat].some(k => t.includes(k))) return cat;
   }
-  return best.cat;
+  return "Outros";
 };
 
 /* ===============================
-   HELPERS
+   INTENÇÕES
 ================================ */
-const isConfirmation = (msg) =>
-  ["sim","ok","confirmar","pode"].includes(msg.trim().toLowerCase());
+const isReport = (msg) =>
+  msg.includes("relatório") || msg.includes("diagnóstico") || msg.includes("gastei com");
 
-const isAbortText = (msg) =>
-  ["sei lá","sei la","qualquer coisa"].some(k => msg.toLowerCase().includes(k));
-
-const isCategoryReportRequest = (msg) =>
-  ["gastei com","gastos com","quanto gastei com"].some(k =>
-    msg.toLowerCase().includes(k)
-  );
-
-const isGeneralReportRequest = (msg) =>
-  ["relatório geral","relatorio geral","relatório do mês","como foi meu mês","analise do mes","análise do mês"]
-    .some(k => msg.toLowerCase().includes(k));
+const isPureConversation = (msg) =>
+  !msg.match(/\d+/) && !msg.includes("relatório");
 
 /* ===============================
-   DIAGNÓSTICO FINANCEIRO
-================================ */
-const buildMonthlyDiagnosis = async (user_id, month) => {
-  const year = new Date().getFullYear();
-  const start = `${year}-${String(month).padStart(2,"0")}-01`;
-  const end = `${year}-${String(month).padStart(2,"0")}-31`;
-
-  const { data } = await supabase
-    .from("despesas")
-    .select("amount, category")
-    .eq("user_id", user_id)
-    .gte("expense_date", start)
-    .lte("expense_date", end);
-
-  if (!data || !data.length) return null;
-
-  let total = 0;
-  const byCategory = {};
-  data.forEach(d => {
-    if (d.amount == null) return;
-    total += Number(d.amount);
-    byCategory[d.category] = (byCategory[d.category] || 0) + Number(d.amount);
-  });
-
-  const ranking = Object.entries(byCategory)
-    .map(([cat, val]) => ({
-      category: cat,
-      value: val,
-      percent: ((val / total) * 100).toFixed(1)
-    }))
-    .sort((a,b) => b.value - a.value);
-
-  return { total, ranking, count: data.length };
-};
-
-/* ===============================
-   EXTRAÇÃO DE DESPESAS
-================================ */
-const extractExpenses = (text) => {
-  const parts = text.replace(/,| e /gi," | ").split("|");
-  const expenses = [];
-
-  parts.forEach(p => {
-    const tokens = p.trim().split(" ");
-    let value = null;
-    let desc = [];
-    tokens.forEach(tok => {
-      if (/^\d+([.,]\d+)?$/.test(tok) && value === null) {
-        value = Number(tok.replace(",", "."));
-      } else {
-        desc.push(tok);
-      }
-    });
-    if (!desc.length) return;
-    expenses.push({
-      description: desc.join(" "),
-      amount: value,
-      date: parseDateFromText(p) || todayISO()
-    });
-  });
-
-  return expenses;
-};
-
-/* ===============================
-   ROTA PRINCIPAL
+   ROTA
 ================================ */
 app.post("/oraculo", async (req, res) => {
-  try {
-    const { message, user_id } = req.body;
-    if (!message || !user_id) return res.json({ reply: ORACLE.askClarify });
+  const { message, user_id } = req.body;
+  if (!message || !user_id) return res.json({ reply: ORACLE_TONE.doubt });
 
-    memory[user_id] ||= { state: "idle", expenses: [] };
+  const text = message.toLowerCase();
 
-    // DIAGNÓSTICO GERAL
-    if (isGeneralReportRequest(message)) {
-      const month = extractMonthFromText(message);
-      if (!month) return res.json({ reply: "🔮 Qual mês deseja analisar?" });
-
-      const report = await buildMonthlyDiagnosis(user_id, month);
-      if (!report) return res.json({ reply: ORACLE.noData });
-
-      let text = `📊 **Diagnóstico Financeiro — ${message}**\n\n`;
-      text += `💰 Total gasto: R$ ${report.total.toFixed(2)}\n`;
-      text += `📄 Registros: ${report.count}\n\n`;
-      text += `🏆 Onde mais drenou recursos:\n`;
-      report.ranking.forEach((r,i)=>{
-        text += `${i+1}) ${r.category} — R$ ${r.value.toFixed(2)} (${r.percent}%)\n`;
-      });
-      text += `\n🔮 **Leitura do Oráculo:**\n`;
-      text += report.ranking[0].percent > 40
-        ? "Uma única categoria domina seus gastos. Ajustes nela geram grande impacto."
-        : "Seus gastos estão relativamente equilibrados, mas há margem para otimização.";
-
-      return res.json({ reply: text });
-    }
-
-    // CONFIRMAÇÃO
-    if (memory[user_id].state === "preview" && isConfirmation(message)) {
-      for (const e of memory[user_id].expenses) {
-        await supabase.from("despesas").insert({
-          user_id,
-          description: e.description,
-          amount: e.amount,
-          category: e.category,
-          expense_date: e.date,
-          data_vencimento: e.date,
-          status: "pendente",
-          expense_type: "Variável"
-        });
-      }
-      memory[user_id] = { state: "idle", expenses: [] };
-      return res.json({ reply: ORACLE.saved });
-    }
-
-    // EXTRAÇÃO
-    const extracted = extractExpenses(message);
-    if (!extracted.length) return res.json({ reply: ORACLE.nothingFound });
-
-    memory[user_id].expenses = extracted.map(e => ({
-      ...e,
-      category: classifyCategory(e.description)
-    }));
-    memory[user_id].state = "preview";
-
-    let preview = "🧾 Posso registrar assim?\n\n";
-    memory[user_id].expenses.forEach((e,i)=>{
-      preview += `${i+1}) ${e.description} — ${
-        e.amount == null ? "Valor não informado" : `R$ ${e.amount}`
-      } — ${e.category}\n`;
+  /* ===============================
+     CONVERSA LIVRE
+  ================================ */
+  if (isPureConversation(text)) {
+    return res.json({
+      reply: `${ORACLE_TONE.reflect}\n\nO que deseja explorar sobre suas finanças?`
     });
-    preview += `\n${ORACLE.askConfirm}`;
-
-    return res.json({ reply: preview });
-
-  } catch (err) {
-    console.error(err);
-    return res.status(500).json({ reply: "🌪️ O Oráculo perdeu o foco por um instante." });
   }
+
+  /* ===============================
+     RELATÓRIO / DIAGNÓSTICO
+  ================================ */
+  if (isReport(text)) {
+    const now = new Date();
+    const month = now.getMonth() + 1;
+    const year = now.getFullYear();
+
+    const { data } = await supabase
+      .from("despesas")
+      .select("*")
+      .gte("expense_date", `${year}-${String(month).padStart(2, "0")}-01`)
+      .lte("expense_date", `${year}-${String(month).padStart(2, "0")}-31`);
+
+    if (!data || data.length === 0) {
+      return res.json({ reply: "📭 Ainda não há registros suficientes para essa análise." });
+    }
+
+    let total = 0;
+    const byCat = {};
+    data.forEach(d => {
+      total += Number(d.amount || 0);
+      byCat[d.category] = (byCat[d.category] || 0) + Number(d.amount || 0);
+    });
+
+    let reply = `📊 **Diagnóstico Financeiro do Mês**\n\n💰 Total gasto: R$ ${total.toFixed(2)}\n\n`;
+    for (const c in byCat) {
+      const pct = ((byCat[c] / total) * 100).toFixed(1);
+      reply += `• ${c}: R$ ${byCat[c].toFixed(2)} (${pct}%)\n`;
+    }
+
+    reply += `\n🔮 Reflexão: pequenos ajustes nas maiores categorias geram grandes impactos.`;
+
+    return res.json({ reply });
+  }
+
+  /* ===============================
+     REGISTRO (IA)
+  ================================ */
+  const ai = await fetch("https://api.openai.com/v1/responses", {
+    method: "POST",
+    headers: {
+      "Content-Type": "application/json",
+      Authorization: `Bearer ${process.env.OPENAI_API_KEY}`
+    },
+    body: JSON.stringify({
+      model: "gpt-5-mini",
+      input: [
+        {
+          role: "system",
+          content: `
+Extraia despesas do texto.
+Retorne JSON:
+{
+  "despesas": [
+    { "descricao": "", "valor": null }
+  ]
+}`
+        },
+        { role: "user", content: message }
+      ]
+    })
+  });
+
+  const aiData = await ai.json();
+  const raw = aiData.output?.[0]?.content?.[0]?.text;
+  if (!raw) return res.json({ reply: ORACLE_TONE.doubt });
+
+  const parsed = JSON.parse(raw);
+  const date = resolveDate(message);
+
+  memory[user_id] = parsed.despesas.map(d => ({
+    description: d.descricao,
+    amount: d.valor,
+    category: classifyCategory(d.descricao),
+    date
+  }));
+
+  let preview = `${ORACLE_TONE.confirm}\n\n`;
+  memory[user_id].forEach((e, i) => {
+    preview += `${i + 1}) ${e.description} — ${e.amount ?? "Valor não informado"} — ${e.category}\n`;
+  });
+
+  preview += `\n📅 Data: ${date}\n\nResponda **"sim"** para confirmar.`;
+
+  return res.json({ reply: preview });
 });
 
 /* ===============================
