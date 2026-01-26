@@ -1,6 +1,6 @@
 import express from "express";
 import { createClient } from "@supabase/supabase-js";
-
+import fetch from "node-fetch";
 /* ===============================
    SUPABASE
 ================================ */
@@ -36,6 +36,25 @@ const ORACLE = {
   nothingFound: "🌫️ Não consegui enxergar nenhuma despesa nessa mensagem.",
   aborted: "🌫️ As palavras se dispersaram… tente novamente com mais clareza."
 };
+/* ===============================
+   CONVERSA LIVRE - PERSONALIDADE
+================================ */
+const ORACLE_CONVERSATION_PROMPT = `
+Você é o ORÁCULO FINANCEIRO.
+
+Um mentor criativo, humano, otimista e encorajador em finanças pessoais.
+Você fala com empatia, clareza e inspiração.
+Você entende que dinheiro envolve emoção, hábitos e escolhas.
+
+Você ajuda a pessoa a refletir, sem julgar.
+Você sugere caminhos possíveis, sem impor.
+Você celebra pequenos avanços.
+
+Você NÃO registra despesas.
+Você NÃO cria relatórios.
+Você NÃO inventa números.
+Você apenas conversa, orienta e inspira.
+`;
 
 /* ===============================
    MEMÓRIA (ESTADO)
@@ -255,7 +274,45 @@ const extractExpenses = (text) => {
 
   return expenses;
 };
+/* ===============================
+   CONVERSA LIVRE COM OPENAI
+================================ */
+async function conversaLivreComIA(message) {
+  try {
+    const response = await fetch("https://api.openai.com/v1/chat/completions", {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "Authorization": `Bearer ${process.env.OPENAI_API_KEY}`
+      },
+      body: JSON.stringify({
+        model: "gpt-4o-mini",
+        messages: [
+          {
+            role: "system",
+            content: ORACLE_CONVERSATION_PROMPT
+          },
+          {
+            role: "user",
+            content: message
+          }
+        ],
+        temperature: 0.8
+      })
+    });
 
+    const data = await response.json();
+
+    return (
+      data?.choices?.[0]?.message?.content ||
+      "🔮 Vamos olhar isso com calma. Pode me contar um pouco mais?"
+    );
+
+  } catch (err) {
+    console.error("Erro OpenAI:", err);
+    return "🔮 Algo ficou nebuloso por um instante… quer tentar explicar de outro jeito?";
+  }
+}
 /* ===============================
    ROTA PRINCIPAL
 ================================ */
@@ -384,12 +441,11 @@ if (isConversation) {
 
   return res.json({ reply });
 }
-
-    const extracted = extractExpenses(message);
-    if (!extracted.length) {
-      return res.json({ reply: ORACLE.nothingFound });
-    }
-
+const extracted = extractExpenses(message);
+if (!extracted.length) {
+  const reply = await conversaLivreComIA(message);
+  return res.json({ reply });
+}
     memory[user_id].expenses = extracted.map(e => ({
       ...e,
       category: classifyCategory(e.description)
