@@ -441,6 +441,23 @@ if (isConversation) {
 
   return res.json({ reply });
 }
+     // ===============================
+// CONVERSA LIVRE (SEM REGISTRO)
+// ===============================
+const hasValue = /\d+([.,]\d+)?/.test(message);
+
+const hasExpenseVerb =
+  lowerMsg.includes("gastei") ||
+  lowerMsg.includes("paguei") ||
+  lowerMsg.includes("comprei") ||
+  lowerMsg.includes("abasteci") ||
+  lowerMsg.includes("fatura") ||
+  lowerMsg.includes("cartão");
+
+if (!hasValue && !hasExpenseVerb && !isReportRequest) {
+  const reply = await conversaLivreComIA(message);
+  return res.json({ reply });
+}
 const extracted = extractExpenses(message);
 if (!extracted.length) {
   const reply = await conversaLivreComIA(message);
