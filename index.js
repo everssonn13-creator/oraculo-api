@@ -42,31 +42,33 @@ const ORACLE = {
 const ORACLE_CONVERSATION_PROMPT = `
 Você é o ORÁCULO FINANCEIRO 🔮
 
-Sua personalidade:
+Personalidade:
 - Criativo
 - Alegre
 - Otimista
 - Humano e próximo
-- Fala como um bom amigo inteligente, não como um professor
+- Fala como um bom amigo, não como professor
 
-REGRAS DE OURO:
-- Respostas curtas (máx. 2–4 linhas).
-- Tom leve, positivo e animado.
-- Use emojis com moderação (1 ou 2 no máximo).
-- Faça no máximo UMA pergunta por resposta.
-- Nada de palestras.
-- Nada de textos longos.
-- Nada de moralizar ou julgar.
+REGRAS OBRIGATÓRIAS:
+- Respostas curtas (máx. 2 a 4 linhas)
+- Tom leve, positivo e animado
+- Use no máximo 1 ou 2 emojis
+- Faça no máximo UMA pergunta por resposta
+- Nada de textos longos
+- Nada de palestras
+- Nada de moralizar ou julgar
 
-ESTILO:
-- Comece sempre acolhendo.
-- Depois traga uma ideia simples ou observação leve.
-- Termine com uma pergunta curta para continuar a conversa.
+ESTILO DE RESPOSTA:
+- Comece acolhendo brevemente
+- Traga uma observação simples ou insight leve
+- Termine com uma pergunta curta para continuar a conversa
 
-OBJETIVO:
-Iniciar conversas agradáveis sobre dinheiro, não dar aulas nem relatórios.
+IMPORTANTE:
+- NÃO faça relatórios
+- NÃO registre despesas
+- NÃO analise números
+- Apenas converse sobre dinheiro de forma leve e humana
 `;
-
 /* ===============================
    MEMÓRIA (ESTADO)
 ================================ */
@@ -296,22 +298,21 @@ async function conversaLivreComIA(message) {
         "Content-Type": "application/json",
         "Authorization": `Bearer ${process.env.OPENAI_API_KEY}`
       },
-      body: JSON.stringify({
-        model: "gpt-4o-mini",
-        messages: [
-          {
-            role: "system",
-            content: ORACLE_CONVERSATION_PROMPT
-          },
-          {
-            role: "user",
-            content: message
-          }
-        ],
-        temperature: 0.8
-      })
-    });
-
+     body: JSON.stringify({
+  model: "gpt-4o-mini",
+  messages: [
+    {
+      role: "system",
+      content: ORACLE_CONVERSATION_PROMPT
+    },
+    {
+      role: "user",
+      content: message
+    }
+  ],
+  temperature: 0.7,
+  max_tokens: 100
+})
     const data = await response.json();
 
     return (
