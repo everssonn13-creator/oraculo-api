@@ -325,7 +325,7 @@ const extractExpenses = (text) => {
 /* ===============================
    CONVERSA LIVRE COM OPENAI
 ================================ */
-async function conversaLivreComIA(message) {
+async function conversaLivreComIA(message, financialContextText = "") {
   try {
    const response = await fetch("https://api.openai.com/v1/chat/completions", {
   method: "POST",
@@ -338,7 +338,7 @@ async function conversaLivreComIA(message) {
     messages: [
       {
         role: "system",
-        content: ORACLE_CONVERSATION_PROMPT
+        content: ORACLE_CONVERSATION_PROMPT + "\n" + financialContextText
       },
       {
         role: "user",
@@ -367,7 +367,22 @@ const data = await response.json();
 ================================ */
 app.post("/oraculo", async (req, res) => {
   try {
-    const { message, user_id } = req.body;
+    const { message, user_id, financialContext } = req.body;
+     let financialContextText = "";
+
+if (financialContext) {
+  financialContextText = `
+CONTEXTO FINANCEIRO DO USUÁRIO:
+- Renda mensal: R$ ${financialContext.monthlyIncome}
+- Total de despesas: R$ ${financialContext.totalExpenses}
+
+Despesas por categoria:
+${JSON.stringify(financialContext.expenseByCategory, null, 2)}
+
+Use essas informações SOMENTE se forem úteis para ajudar o usuário.
+Não repita números sem necessidade.
+`;
+}
     if (!message || !user_id) {
       return res.json({ reply: ORACLE.askClarify });
     }
@@ -504,12 +519,12 @@ const hasExpenseVerb =
   lowerMsg.includes("cartão");
 
 if (!hasValue && !hasExpenseVerb && !isReportRequest) {
-  const reply = await conversaLivreComIA(message);
+  const reply = await conversaLivreComIA(message, financialContextText);
   return res.json({ reply });
 }
 const extracted = extractExpenses(message);
 if (!extracted.length) {
-  const reply = await conversaLivreComIA(message);
+  const reply = await conversaLivreComIA(message, financialContextText);
   return res.json({ reply });
 }
     memory[user_id].expenses = extracted.map(e => ({
