@@ -222,8 +222,8 @@ const CATEGORY_MAP = {
   ],
 
   Compras: [
-    "comprei","fiz uma compra","pedido","encomenda",
-    "roupa","camisa","calça","calca","tênis","tenis","sapato",
+    "comprei","fiz uma compra","pedido","encomenda","comprei um","comprei uma",
+    "roupa","camisa","camiseta","calça","calca","tênis","tenis","sapato",
     "celular","notebook","computador","tablet","tv","televisão",
     "shopping","loja",
     "amazon","shopee","mercado livre",
@@ -263,20 +263,61 @@ const CATEGORY_MAP = {
     "office","office 365","canva","notion","figma"
   ]
 };
+const DOMAIN_MAP = {
+  roupa: ["camiseta", "camisa", "blusa", "calça", "calca", "short", "bermuda", "jaqueta", "casaco", "roupa"],
+  eletronico: ["celular", "notebook", "computador", "tablet", "tv", "televisao"],
+};
+
+const INTENT_WORDS = {
+  compra: ["comprei", "compra", "pedido", "encomenda", "paguei", "gastei"],
+};
+const normalize = (text) =>
+  text
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "");
 
 const classifyCategory = (text) => {
-  const t = text.toLowerCase();
-  let best = { cat: "Outros", score: 0 };
+  const t = normalize(text);
+  const scores = {};
 
+  // 1️⃣ Score por CATEGORY_MAP (o que você já tinha)
   for (const [cat, words] of Object.entries(CATEGORY_MAP)) {
-    let score = 0;
+    scores[cat] = 0;
+
     for (const w of words) {
-      if (t.includes(w)) score++;
+      if (t.includes(normalize(w))) {
+        scores[cat] += 2; // match forte
+      }
     }
-    if (score > best.score) best = { cat, score };
   }
 
-  return best.cat;
+  // 2️⃣ Score por DOMÍNIO (inteligência nova)
+  if (DOMAIN_MAP.roupa.some(w => t.includes(w))) {
+    scores["Compras"] = (scores["Compras"] || 0) + 3;
+  }
+
+  if (DOMAIN_MAP.eletronico.some(w => t.includes(w))) {
+    scores["Compras"] = (scores["Compras"] || 0) + 3;
+  }
+
+  // 3️⃣ Score por INTENÇÃO
+  if (INTENT_WORDS.compra.some(w => t.includes(w))) {
+    scores["Compras"] = (scores["Compras"] || 0) + 1;
+  }
+
+  // 4️⃣ Escolhe a melhor categoria
+  let bestCat = "Outros";
+  let bestScore = 0;
+
+  for (const [cat, score] of Object.entries(scores)) {
+    if (score > bestScore) {
+      bestScore = score;
+      bestCat = cat;
+    }
+  }
+
+  return bestScore > 0 ? bestCat : "Outros";
 };
 
 /* ===============================
