@@ -417,7 +417,6 @@ app.post("/oraculo", async (req, res) => {
     // registra interação
     // ===============================
     registerInteraction(userMemory);
-    await saveUserContext(supabase, user_id, userMemory);
     // ===============================
     // DETECTOR DE INTENÇÃO
     // ===============================
@@ -458,15 +457,28 @@ if (userMemory.state === "preview") {
         is_recurring: false
       });
     }
-// atualiza memória contextual
-updatePatterns(userMemory);
 
-// reseta estado de fluxo
-userMemory.state = "idle";
-userMemory.expenses = [];
-userMemory.lastReport = null;
-await saveUserContext(supabase, user_id, userMemory);
-return res.json({ reply: ORACLE.saved });
+    updatePatterns(userMemory);
+
+    userMemory.state = "idle";
+    userMemory.expenses = [];
+    userMemory.lastReport = null;
+
+    await saveUserContext(supabase, user_id, userMemory);
+
+    return res.json({ reply: ORACLE.saved });
+  }
+
+  // ❌ usuário negou ou quer corrigir
+  if (["não", "nao", "cancelar", "corrigir"].includes(lowerMsg)) {
+    userMemory.state = "idle";
+    userMemory.expenses = [];
+
+    await saveUserContext(supabase, user_id, userMemory);
+
+    return res.json({
+      reply: "Tudo bem 🙂 Me diga novamente como foi que eu ajusto."
+    });
   }
 }
 // ===============================
