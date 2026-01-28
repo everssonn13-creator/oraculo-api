@@ -469,7 +469,7 @@ app.post("/oraculo", async (req, res) => {
     ========================================= */
     if (userMemory.state === "preview") {
 
-      /* ---------- 8.1 CONFIRMAÇÃO POSITIVA ---------- */
+      /* ---------- 9.1 CONFIRMAÇÃO POSITIVA ---------- */
       if (["sim", "ok", "confirmar"].includes(lowerMsg)) {
         for (const e of userMemory.expenses) {
           await supabase.from("despesas").insert({
@@ -496,7 +496,7 @@ app.post("/oraculo", async (req, res) => {
         return res.json({ reply: ORACLE.saved });
       }
 
-      /* ---------- 8.2 NEGATIVA / CORREÇÃO ---------- */
+      /* ---------- 9.2 NEGATIVA / CORREÇÃO ---------- */
       if (["não", "nao", "cancelar", "corrigir"].includes(lowerMsg)) {
         userMemory.state = "idle";
         userMemory.expenses = [];
@@ -598,7 +598,7 @@ app.post("/oraculo", async (req, res) => {
       return res.json({ reply });
     }
     /* =========================================
-       1️⃣ 3️⃣ CONVERSA LIVRE (SEM REGISTRO)
+       1️⃣3️⃣ CONVERSA LIVRE (SEM REGISTRO)
     ========================================= */
     if (!hasValue && !hasExpenseVerb && !isReportRequest) {
       let reply = await conversaLivreComIA(message);
