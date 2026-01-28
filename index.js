@@ -529,13 +529,15 @@ if (!extracted.length) {
       } — ${e.category}\n`;
     });
 
-    preview += `\n${ORACLE.askConfirm}`;
-    return res.json({ reply: preview });
+ preview += `\n${ORACLE.askConfirm}`;
+return res.json({ reply: preview });
 
-  } catch (err) {
-    console.error(err);
-    return res.status(500).json({ reply: "🌪️ As visões se romperam por um instante…" });
-  }
+} catch (err) {
+  console.error(err);
+  return res.status(500).json({
+    reply: "🌪️ As visões se romperam por um instante…"
+  });
+}
 });
 
 /* ===============================
