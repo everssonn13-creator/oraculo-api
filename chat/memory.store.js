@@ -35,3 +35,10 @@ export function updatePatterns(userMemory) {
     userMemory.patterns.topCategories[e.category] += 1;
   }
 }
+// ===============================
+// FASE 3 – CONTEXTO CONVERSACIONAL
+// ===============================
+
+export function registerInteraction(userMemory) {
+  userMemory.patterns.interactions += 1;
+}
