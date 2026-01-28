@@ -1,3 +1,6 @@
+/* ======================================================
+   1️⃣ IMPORTAÇÕES E DEPENDÊNCIAS
+====================================================== */
 import express from "express";
 import { createClient } from "@supabase/supabase-js";
 import { conversaLivreComIA } from "./chat/conversaLivre.js";
@@ -9,23 +12,23 @@ import {
   loadUserContext
 } from "./chat/memory.store.js";
 
-/* ===============================
-   SUPABASE
-================================ */
+/* ======================================================
+   2️⃣ SUPABASE
+====================================================== */
 const supabase = createClient(
   process.env.SUPABASE_URL,
   process.env.SUPABASE_SERVICE_ROLE_KEY
 );
 
-/* ===============================
-   APP
-================================ */
+/* ======================================================
+   3️⃣ APP EXPRESS
+====================================================== */
 const app = express();
 app.use(express.json());
 
-/* ===============================
-   CORS
-================================ */
+/* ======================================================
+   4️⃣ CORS
+====================================================== */
 app.use((req, res, next) => {
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization");
@@ -34,9 +37,9 @@ app.use((req, res, next) => {
   next();
 });
 
-/* ===============================
-   PERSONALIDADE DO ORÁCULO
-================================ */
+/* ======================================================
+   5️⃣ PERSONALIDADE DO ORÁCULO
+====================================================== */
 const ORACLE = {
   askClarify: "🔮 Minha visão ficou turva… pode me dar mais detalhes?",
   askConfirm: "Se minha leitura estiver correta, diga **\"sim\"**.",
@@ -44,9 +47,10 @@ const ORACLE = {
   nothingFound: "🌫️ Não consegui enxergar nenhuma despesa nessa mensagem.",
   aborted: "🌫️ As palavras se dispersaram… tente novamente com mais clareza."
 };
-/* ===============================
-   CONVERSA LIVRE - PERSONALIDADE
-================================ */
+
+/* ======================================================
+   6️⃣ CONVERSA LIVRE — PROMPT DE PERSONALIDADE
+====================================================== */
 const ORACLE_CONVERSATION_PROMPT = `
 Você é o ORÁCULO FINANCEIRO 🔮
 
@@ -112,19 +116,20 @@ Objetivo final:
 Criar uma conversa agradável sobre dinheiro,
 onde a pessoa se sinta confortável para continuar falando.
 `;
-/* ===============================
-   MEMÓRIA (ESTADO)
-================================ */   
+
+/* ======================================================
+   7️⃣ MEMÓRIA (ESTADO)
+====================================================== */
 /*
 memory[user_id] = {
-  state: "idle" | "preview",
+  state: "idle" | "preview" | "post_report",
   expenses: []
 }
 */
 
-/* ===============================
-   DATAS
-================================ */
+/* ======================================================
+   8️⃣ DATAS
+====================================================== */
 const todayISO = () => new Date().toISOString().split("T")[0];
 
 const parseDateFromText = (text) => {
@@ -163,9 +168,9 @@ const parseDateFromText = (text) => {
   return null;
 };
 
-/* ===============================
-   CATEGORIAS (DICIONÁRIO COMPLETO)
-================================ */
+/* ======================================================
+   9️⃣ CATEGORIAS (DICIONÁRIO COMPLETO)
+====================================================== */
 const CATEGORY_MAP = {
   Alimentação: [
     "comi","almocei","jantei","lanchei","pedi comida","comer fora","comi fora",
@@ -177,7 +182,6 @@ const CATEGORY_MAP = {
     "ifood","delivery","pedido comida",
     "mercado","supermercado","atacadão","assai","extra","carrefour"
   ],
-
   Transporte: [
     "abasteci","abastecer","fui de uber","peguei uber","peguei 99",
     "gastei com transporte","corrida",
@@ -188,7 +192,6 @@ const CATEGORY_MAP = {
     "oficina","mecânico","mecanico","manutenção",
     "lavagem","lava jato","lavacar"
   ],
-
   Moradia: [
     "paguei aluguel","paguei condomínio","conta de casa","gastei com casa",
     "aluguel","condomínio","condominio",
@@ -199,7 +202,6 @@ const CATEGORY_MAP = {
     "reparo","conserto","manutenção",
     "faxina","limpeza","diarista"
   ],
-
   Saúde: [
     "fui ao médico","consulta médica","gastei com saúde",
     "médico","medico","dentista","psicólogo","psicologo",
@@ -209,7 +211,6 @@ const CATEGORY_MAP = {
     "exame","checkup","raio-x","ultrassom","ressonância",
     "plano de saúde","convênio","convenio","coparticipação"
   ],
-
   Pets: [
     "gastei com pet","levei no veterinário",
     "pet","cachorro","gato",
@@ -218,7 +219,6 @@ const CATEGORY_MAP = {
     "veterinário","veterinario","petshop",
     "banho","tosa","hotel pet","creche pet"
   ],
-
   Dívidas: [
     "paguei fatura","paguei dívida","parcelei","renegociei",
     "fatura","cartão","cartao","cartão de crédito","cartao de credito",
@@ -227,7 +227,6 @@ const CATEGORY_MAP = {
     "acordo","renegociação","parcelamento",
     "atrasado","em atraso","consórcio","consorcio"
   ],
-
   Compras: [
     "comprei","fiz uma compra","pedido","encomenda","comprei um","comprei uma",
     "roupa","camisa","camiseta","calça","calca","tênis","tenis","sapato",
@@ -236,7 +235,6 @@ const CATEGORY_MAP = {
     "amazon","shopee","mercado livre",
     "magalu","casas bahia","americanas","shein"
   ],
-
   Lazer: [
     "saí","passei","viajei","gastei com lazer",
     "cinema","show","evento","festival",
@@ -244,7 +242,6 @@ const CATEGORY_MAP = {
     "hotel","airbnb","resort",
     "jogo","game","videogame","psn","xbox"
   ],
-
   Educação: [
     "estudei","paguei curso","mensalidade faculdade",
     "curso","faculdade","aula","escola",
@@ -252,7 +249,6 @@ const CATEGORY_MAP = {
     "ead","online","udemy","alura","coursera","hotmart",
     "mba","pós","pos","especialização","especializacao"
   ],
-
   Investimentos: [
     "investi","apliquei","fiz aporte","aporte mensal",
     "investimento","ação","acoes","fundo","fii",
@@ -260,7 +256,6 @@ const CATEGORY_MAP = {
     "previdência","previdencia","poupança","poupanca",
     "cripto","bitcoin","renda fixa","renda variável"
   ],
-
   Assinaturas: [
     "assinatura","mensalidade","plano mensal",
     "netflix","spotify","prime","youtube","youtube premium",
@@ -270,6 +265,7 @@ const CATEGORY_MAP = {
     "office","office 365","canva","notion","figma"
   ]
 };
+
 const DOMAIN_MAP = {
   roupa: ["camiseta", "camisa", "blusa", "calça", "calca", "short", "bermuda", "jaqueta", "casaco", "roupa"],
   eletronico: ["celular", "notebook", "computador", "tablet", "tv", "televisao"],
@@ -278,6 +274,10 @@ const DOMAIN_MAP = {
 const INTENT_WORDS = {
   compra: ["comprei", "compra", "pedido", "encomenda", "paguei", "gastei"],
 };
+
+/* ======================================================
+   1️⃣0️⃣ NORMALIZAÇÃO + CLASSIFICAÇÃO
+====================================================== */
 const normalize = (text) =>
   text
     .toLowerCase()
@@ -288,18 +288,15 @@ const classifyCategory = (text) => {
   const t = normalize(text);
   const scores = {};
 
-  // 1️⃣ Score por CATEGORY_MAP (o que você já tinha)
   for (const [cat, words] of Object.entries(CATEGORY_MAP)) {
     scores[cat] = 0;
-
     for (const w of words) {
       if (t.includes(normalize(w))) {
-        scores[cat] += 2; // match forte
+        scores[cat] += 2;
       }
     }
   }
 
-  // 2️⃣ Score por DOMÍNIO (inteligência nova)
   if (DOMAIN_MAP.roupa.some(w => t.includes(w))) {
     scores["Compras"] = (scores["Compras"] || 0) + 3;
   }
@@ -308,12 +305,10 @@ const classifyCategory = (text) => {
     scores["Compras"] = (scores["Compras"] || 0) + 3;
   }
 
-  // 3️⃣ Score por INTENÇÃO
   if (INTENT_WORDS.compra.some(w => t.includes(w))) {
     scores["Compras"] = (scores["Compras"] || 0) + 1;
   }
 
-  // 4️⃣ Escolhe a melhor categoria
   let bestCat = "Outros";
   let bestScore = 0;
 
@@ -327,9 +322,9 @@ const classifyCategory = (text) => {
   return bestScore > 0 ? bestCat : "Outros";
 };
 
-/* ===============================
-   SEGMENTAÇÃO + EXTRAÇÃO
-================================ */
+/* ======================================================
+   1️⃣1️⃣ SEGMENTAÇÃO + EXTRAÇÃO
+====================================================== */
 const segmentByTime = (text) => {
   const normalized = text.replace(/,/g, " | ").replace(/\s+e\s+/gi, " | ");
   const parts = normalized.split("|").map(p => p.trim()).filter(Boolean);
@@ -370,279 +365,278 @@ const extractExpenses = (text) => {
 
   return expenses;
 };
+
+/* ======================================================
+   1️⃣2️⃣ PERFIL COMPORTAMENTAL
+====================================================== */
 function inferUserProfile(userMemory) {
   const { interactions, totalExpenses, topCategories } = userMemory.patterns;
 
   const categoriesCount = Object.keys(topCategories || {}).length;
 
-  // ECONÔMICO
   if (totalExpenses < 500 && interactions > 5) {
     return "economico";
   }
 
-  // IMPULSIVO
   if (categoriesCount >= 4 && interactions < 5) {
     return "impulsivo";
   }
 
-  // CAUTELOSO
   if (interactions >= 6 && totalExpenses < 1000) {
     return "cauteloso";
   }
 
   return "neutro";
 }
-/* ===============================
-   ROTA PRINCIPAL
-================================ */
+
+/* ======================================================
+   1️⃣3️⃣ ROTA PRINCIPAL
+====================================================== */
 app.post("/oraculo", async (req, res) => {
   try {
     const { message, user_id } = req.body;
 
-    // validação básica
     if (!message || !user_id) {
-  return res.json({ reply: ORACLE.askClarify });
-}
-    // memória em runtime
-    const userMemory = getUserMemory(user_id);
-
-    // ===============================
-    // FASE 4 – PASSO 1
-    // Carrega contexto persistido (Supabase)
-    // ===============================
-    await loadUserContext(supabase, user_id, userMemory);
-
-    // ===============================
-    // FASE 3 – continua normalmente
-    // registra interação
-    // ===============================
-    registerInteraction(userMemory);
-    // ===============================
-    // DETECTOR DE INTENÇÃO
-    // ===============================
-    const lowerMsg = message.toLowerCase();
-const isReportRequest =
-  lowerMsg.includes("relatório") ||
-  lowerMsg.includes("relatorio") ||
-  lowerMsg.includes("diagnóstico") ||
-  lowerMsg.includes("diagnostico") ||
-  lowerMsg.includes("análise") ||
-  lowerMsg.includes("analise") ||
-  lowerMsg.includes("gastei com");
-
-const isConversation =
-  userMemory.lastReport &&
-  (
-    lowerMsg.includes("o que você acha") ||
-    lowerMsg.includes("oq vc acha") ||
-    lowerMsg.includes("isso é bom") ||
-    lowerMsg.includes("isso é ruim") ||
-    lowerMsg.includes("preocupante") ||
-    lowerMsg.includes("ok") ||
-    lowerMsg.includes("entendi")
-  );
-
-if (userMemory.state === "preview") {
-  if (["sim", "ok", "confirmar"].includes(lowerMsg)) {
-    for (const e of userMemory.expenses) {
-      await supabase.from("despesas").insert({
-        user_id,
-        description: e.description,
-        amount: e.amount,
-        category: e.category,
-        expense_date: e.date,
-        data_vencimento: e.date,
-        status: "pendente",
-        expense_type: "Variável",
-        is_recurring: false
-      });
+      return res.json({ reply: ORACLE.askClarify });
     }
 
-    updatePatterns(userMemory);
+    const userMemory = getUserMemory(user_id);
 
-    userMemory.state = "idle";
-    userMemory.expenses = [];
-    userMemory.lastReport = null;
+    await loadUserContext(supabase, user_id, userMemory);
+
+    registerInteraction(userMemory);
+
+    const lowerMsg = message.toLowerCase();
+
+    const isReportRequest =
+      lowerMsg.includes("relatório") ||
+      lowerMsg.includes("relatorio") ||
+      lowerMsg.includes("diagnóstico") ||
+      lowerMsg.includes("diagnostico") ||
+      lowerMsg.includes("análise") ||
+      lowerMsg.includes("analise") ||
+      lowerMsg.includes("gastei com");
+
+    const isConversation =
+      userMemory.lastReport &&
+      (
+        lowerMsg.includes("o que você acha") ||
+        lowerMsg.includes("oq vc acha") ||
+        lowerMsg.includes("isso é bom") ||
+        lowerMsg.includes("isso é ruim") ||
+        lowerMsg.includes("preocupante") ||
+        lowerMsg.includes("ok") ||
+        lowerMsg.includes("entendi")
+      );
+
+    if (userMemory.state === "preview") {
+      if (["sim", "ok", "confirmar"].includes(lowerMsg)) {
+        for (const e of userMemory.expenses) {
+          await supabase.from("despesas").insert({
+            user_id,
+            description: e.description,
+            amount: e.amount,
+            category: e.category,
+            expense_date: e.date,
+            data_vencimento: e.date,
+            status: "pendente",
+            expense_type: "Variável",
+            is_recurring: false
+          });
+        }
+
+        updatePatterns(userMemory);
+
+        userMemory.state = "idle";
+        userMemory.expenses = [];
+        userMemory.lastReport = null;
+
+        await saveUserContext(supabase, user_id, userMemory);
+
+        return res.json({ reply: ORACLE.saved });
+      }
+
+      if (["não", "nao", "cancelar", "corrigir"].includes(lowerMsg)) {
+        userMemory.state = "idle";
+        userMemory.expenses = [];
+
+        await saveUserContext(supabase, user_id, userMemory);
+
+        return res.json({
+          reply: "Tudo bem 🙂 Me diga novamente como foi que eu ajusto."
+        });
+      }
+    }
+
+    if (isReportRequest) {
+      const monthMatch = lowerMsg.match(
+        /(janeiro|fevereiro|março|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro)/
+      );
+
+      const months = {
+        janeiro: 0, fevereiro: 1, março: 2, abril: 3,
+        maio: 4, junho: 5, julho: 6, agosto: 7,
+        setembro: 8, outubro: 9, novembro: 10, dezembro: 11
+      };
+
+      const now = new Date();
+      const start = new Date(now.getFullYear(), monthMatch ? months[monthMatch[1]] : now.getMonth(), 1);
+      const end = new Date(start.getFullYear(), start.getMonth() + 1, 0);
+
+      const { data } = await supabase
+        .from("despesas")
+        .select("*")
+        .eq("user_id", user_id)
+        .gte("expense_date", start.toISOString().split("T")[0])
+        .lte("expense_date", end.toISOString().split("T")[0]);
+
+      if (!data || !data.length) {
+        return res.json({
+          reply: "📭 Ainda não há registros suficientes para esse período."
+        });
+      }
+
+      let total = 0;
+      const byCategory = {};
+
+      data.forEach(d => {
+        total += d.amount || 0;
+        byCategory[d.category] = (byCategory[d.category] || 0) + (d.amount || 0);
+      });
+
+      let reply = `📊 **Relatório ${monthMatch ? monthMatch[1] : "do mês atual"}**\n\n`;
+      reply += `💰 Total gasto: **R$ ${total.toFixed(2)}**\n\n`;
+
+      for (const [cat, val] of Object.entries(byCategory)) {
+        const pct = ((val / total) * 100).toFixed(1);
+        reply += `• ${cat}: R$ ${val.toFixed(2)} (${pct}%)\n`;
+      }
+
+      userMemory.lastReport = { total, byCategory };
+      userMemory.state = "post_report";
+      await saveUserContext(supabase, user_id, userMemory);
+
+      reply += `\n🔮 Quer que eu analise isso com mais profundidade?`;
+      return res.json({ reply });
+    }
+
+    if (isConversation && userMemory.lastReport) {
+      const { byCategory } = userMemory.lastReport;
+
+      const highest = Object.entries(byCategory)
+        .sort((a, b) => b[1] - a[1])[0];
+
+      let reply = `🔮 Observando seus gastos...\n\n`;
+      reply += `📌 Você gastou mais em **${highest[0]}**.\n`;
+      reply += `💭 Isso representa uma parte significativa do seu orçamento.\n\n`;
+
+      reply += `Se quiser, posso te ajudar a:\n`;
+      reply += `• reduzir gastos\n• planejar o próximo mês\n• analisar outra categoria`;
+      return res.json({ reply });
+    }
+
+    if (userMemory.state === "post_report" && userMemory.lastReport) {
+      const { byCategory, total } = userMemory.lastReport;
+
+      const [topCat, topValue] = Object.entries(byCategory)
+        .sort((a, b) => b[1] - a[1])[0];
+
+      const pct = ((topValue / total) * 100).toFixed(1);
+
+      const reply = `🔍 Olhando para esse período, **${topCat}** teve o maior peso (${pct}%).\n\nQuer conversar sobre isso ou prefere pensar em um pequeno ajuste?`;
+
+      return res.json({ reply });
+    }
+
+    const hasValue = /\d+([.,]\d+)?/.test(message);
+
+    const hasExpenseVerb =
+      lowerMsg.includes("gastei") ||
+      lowerMsg.includes("paguei") ||
+      lowerMsg.includes("comprei") ||
+      lowerMsg.includes("abasteci") ||
+      lowerMsg.includes("fatura") ||
+      lowerMsg.includes("cartão");
+
+    if (!hasValue && !hasExpenseVerb && !isReportRequest) {
+      let reply = await conversaLivreComIA(message);
+
+      const profile = inferUserProfile(userMemory);
+
+      if (profile === "economico") {
+        reply = `💡 Dá pra perceber que você costuma cuidar bem do dinheiro.\n\n${reply}`;
+      }
+
+      if (profile === "impulsivo") {
+        reply = `⚡ Parece que suas decisões são bem rápidas — isso tem seu lado bom.\n\n${reply}`;
+      }
+
+      if (profile === "cauteloso") {
+        reply = `🧘 Você costuma pensar antes de agir, isso ajuda muito.\n\n${reply}`;
+      }
+
+      if (userMemory.patterns.interactions === 1) {
+        reply = `🔮 Primeira vez por aqui? Fica à vontade.\n\n${reply}`;
+      }
+
+      if (userMemory.patterns.interactions > 3) {
+        reply = `🙂 Bom te ver de novo por aqui.\n\n${reply}`;
+      }
+
+      if (userMemory.patterns.interactions > 10) {
+        reply = `😄 Já virou hábito passar por aqui, né?\n\n${reply}`;
+      }
+
+      const topCats = Object.entries(userMemory.patterns.topCategories || {})
+        .sort((a, b) => b[1] - a[1]);
+
+      if (topCats.length && userMemory.patterns.interactions > 5) {
+        const [cat] = topCats[0];
+        reply += `\n\n🔎 Notei que você costuma falar bastante sobre **${cat}**.`;
+      }
+
+      return res.json({ reply });
+    }
+
+    const extracted = extractExpenses(message);
+
+    if (!extracted.length) {
+      const reply = await conversaLivreComIA(message);
+      return res.json({ reply });
+    }
+
+    userMemory.expenses = extracted.map(e => ({
+      ...e,
+      category: classifyCategory(e.description)
+    }));
+
+    userMemory.state = "preview";
+
+    let preview = "🧾 Posso registrar assim?\n\n";
+
+    userMemory.expenses.forEach((e, i) => {
+      preview += `${i + 1}) ${e.description} — ${
+        e.amount === null ? "Valor não informado" : `R$ ${e.amount}`
+      } — ${e.category}\n`;
+    });
+
+    preview += `\n${ORACLE.askConfirm}`;
 
     await saveUserContext(supabase, user_id, userMemory);
 
-    return res.json({ reply: ORACLE.saved });
-  }
+    return res.json({ reply: preview });
 
-  // ❌ usuário negou ou quer corrigir
-  if (["não", "nao", "cancelar", "corrigir"].includes(lowerMsg)) {
-    userMemory.state = "idle";
-    userMemory.expenses = [];
-
-    await saveUserContext(supabase, user_id, userMemory);
-
-    return res.json({
-      reply: "Tudo bem 🙂 Me diga novamente como foi que eu ajusto."
+  } catch (err) {
+    console.error(err);
+    return res.status(500).json({
+      reply: "🌪️ As visões se romperam por um instante…"
     });
   }
-}
-// ===============================
-// RELATÓRIO MENSAL
-// ===============================
-if (isReportRequest) {
-  const monthMatch = lowerMsg.match(
-    /(janeiro|fevereiro|março|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro)/
-  );
-
-  const months = {
-    janeiro: 0, fevereiro: 1, março: 2, abril: 3,
-    maio: 4, junho: 5, julho: 6, agosto: 7,
-    setembro: 8, outubro: 9, novembro: 10, dezembro: 11
-  };
-
-  const now = new Date();
-  const start = new Date(now.getFullYear(), monthMatch ? months[monthMatch[1]] : now.getMonth(), 1);
-  const end = new Date(start.getFullYear(), start.getMonth() + 1, 0);
-
-  const { data, error } = await supabase
-    .from("despesas")
-    .select("*")
-    .eq("user_id", user_id)
-    .gte("expense_date", start.toISOString().split("T")[0])
-    .lte("expense_date", end.toISOString().split("T")[0]);
-
-  if (!data || !data.length) {
-    return res.json({
-      reply: "📭 Ainda não há registros suficientes para esse período."
-    });
-  }
-
-  let total = 0;
-  const byCategory = {};
-
-  data.forEach(d => {
-    total += d.amount || 0;
-    byCategory[d.category] = (byCategory[d.category] || 0) + (d.amount || 0);
-  });
-
-  let reply = `📊 **Relatório ${monthMatch ? monthMatch[1] : "do mês atual"}**\n\n`;
-  reply += `💰 Total gasto: **R$ ${total.toFixed(2)}**\n\n`;
-
-  for (const [cat, val] of Object.entries(byCategory)) {
-    const pct = ((val / total) * 100).toFixed(1);
-    reply += `• ${cat}: R$ ${val.toFixed(2)} (${pct}%)\n`;
-  }
-
-  userMemory.lastReport = { total, byCategory };
-await saveUserContext(supabase, user_id, userMemory);
-  reply += `\n🔮 Quer que eu analise isso com mais profundidade?`;
-  return res.json({ reply });
-}
-// ===============================
-// CONVERSA SOBRE RELATÓRIO
-// ===============================
-if (isConversation && userMemory.lastReport) {
-  const { total, byCategory } = userMemory.lastReport;
-
-  const highest = Object.entries(byCategory)
-    .sort((a, b) => b[1] - a[1])[0];
-
-  let reply = `🔮 Observando seus gastos...\n\n`;
-  reply += `📌 Você gastou mais em **${highest[0]}**.\n`;
-  reply += `💭 Isso representa uma parte significativa do seu orçamento.\n\n`;
-
-  reply += `Se quiser, posso te ajudar a:\n`;
-  reply += `• reduzir gastos\n• planejar o próximo mês\n• analisar outra categoria`;
-  return res.json({ reply });
-}
-     // ===============================
-// CONVERSA LIVRE (SEM REGISTRO)
-// ===============================
-const hasValue = /\d+([.,]\d+)?/.test(message);
-
-const hasExpenseVerb =
-  lowerMsg.includes("gastei") ||
-  lowerMsg.includes("paguei") ||
-  lowerMsg.includes("comprei") ||
-  lowerMsg.includes("abasteci") ||
-  lowerMsg.includes("fatura") ||
-  lowerMsg.includes("cartão");
-
- if (!hasValue && !hasExpenseVerb && !isReportRequest) {
-  let reply = await conversaLivreComIA(message);
-
-  // PERFIL COMPORTAMENTAL (FASE 3 - PASSO 5)
-  const profile = inferUserProfile(userMemory);
-
-  if (profile === "economico") {
-    reply = `💡 Dá pra perceber que você costuma cuidar bem do dinheiro.\n\n${reply}`;
-  }
-
-  if (profile === "impulsivo") {
-    reply = `⚡ Parece que suas decisões são bem rápidas — isso tem seu lado bom.\n\n${reply}`;
-  }
-
-  if (profile === "cauteloso") {
-    reply = `🧘 Você costuma pensar antes de agir, isso ajuda muito.\n\n${reply}`;
-  }
-
-  // MEMÓRIA DE INTERAÇÃO
-  if (userMemory.patterns.interactions === 1) {
-    reply = `🔮 Primeira vez por aqui? Fica à vontade.\n\n${reply}`;
-  }
-
-  if (userMemory.patterns.interactions > 3) {
-    reply = `🙂 Bom te ver de novo por aqui.\n\n${reply}`;
-  }
-
-  if (userMemory.patterns.interactions > 10) {
-    reply = `😄 Já virou hábito passar por aqui, né?\n\n${reply}`;
-  }
-
-  // PADRÕES DE CATEGORIA
-  const topCats = Object.entries(userMemory.patterns.topCategories || {})
-    .sort((a, b) => b[1] - a[1]);
-
-  if (topCats.length && userMemory.patterns.interactions > 5) {
-    const [cat] = topCats[0];
-    reply += `\n\n🔎 Notei que você costuma falar bastante sobre **${cat}**.`;
-  }
-  return res.json({ reply });
-}
-const extracted = extractExpenses(message);
-if (!extracted.length) {
-  const reply = await conversaLivreComIA(message);
-  return res.json({ reply });
-}
-   userMemory.expenses = extracted.map(e => ({
-  ...e,
-  category: classifyCategory(e.description)
-}));
-
-// entra em modo preview
-userMemory.state = "preview";
-
-// monta mensagem de confirmação
-let preview = "🧾 Posso registrar assim?\n\n";
-
-userMemory.expenses.forEach((e, i) => {
-  preview += `${i + 1}) ${e.description} — ${
-    e.amount === null ? "Valor não informado" : `R$ ${e.amount}`
-  } — ${e.category}\n`;
 });
 
-preview += `\n${ORACLE.askConfirm}`;
-
-// 🔐 SALVA O ESTADO DE PREVIEW NO SUPABASE (AJUSTE IMPORTANTE)
-await saveUserContext(supabase, user_id, userMemory);
-
-return res.json({ reply: preview });
-} catch (err) {
-  console.error(err);
-  return res.status(500).json({
-    reply: "🌪️ As visões se romperam por um instante…"
-  });
-}
-});
-
-/* ===============================
-   START
-================================ */
+/* ======================================================
+   1️⃣4️⃣ START
+====================================================== */
 const PORT = process.env.PORT || 8080;
 app.listen(PORT, () => {
   console.log("🔮 Oráculo Financeiro ativo na porta " + PORT);
