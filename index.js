@@ -1,7 +1,7 @@
 import express from "express";
 import { createClient } from "@supabase/supabase-js";
 import { conversaLivreComIA } from "./chat/conversaLivre.js";
-import { getUserMemory } from "./chat/memory.store.js";
+import { getUserMemory, updatePatterns } from "./chat/memory.store.js";
 
 /* ===============================
    SUPABASE
@@ -415,12 +415,15 @@ if (userMemory.state === "preview") {
         is_recurring: false
       });
     }
+// atualiza memória contextual
+updatePatterns(userMemory);
 
-    userMemory.state = "idle";
-    userMemory.expenses = [];
-    delete userMemory.lastReport;
+// reseta estado de fluxo
+userMemory.state = "idle";
+userMemory.expenses = [];
+userMemory.lastReport = null;
 
-    return res.json({ reply: ORACLE.saved });
+return res.json({ reply: ORACLE.saved });
   }
 }
 // ===============================
