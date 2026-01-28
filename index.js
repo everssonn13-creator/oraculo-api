@@ -401,9 +401,8 @@ app.post("/oraculo", async (req, res) => {
 
     // validação básica
     if (!message || !user_id) {
-      return res.json({ reply: ORACLE.askClarify });
-    }
-
+  return res.json({ reply: ORACLE.askClarify });
+}
     // memória em runtime
     const userMemory = getUserMemory(user_id);
 
@@ -418,7 +417,7 @@ app.post("/oraculo", async (req, res) => {
     // registra interação
     // ===============================
     registerInteraction(userMemory);
-
+    await saveUserContext(supabase, user_id, userMemory);
     // ===============================
     // DETECTOR DE INTENÇÃO
     // ===============================
@@ -461,13 +460,12 @@ if (userMemory.state === "preview") {
     }
 // atualiza memória contextual
 updatePatterns(userMemory);
-await saveUserContext(supabase, user_id, userMemory);
 
 // reseta estado de fluxo
 userMemory.state = "idle";
 userMemory.expenses = [];
 userMemory.lastReport = null;
-
+await saveUserContext(supabase, user_id, userMemory);
 return res.json({ reply: ORACLE.saved });
   }
 }
@@ -519,9 +517,8 @@ if (isReportRequest) {
   }
 
   userMemory.lastReport = { total, byCategory };
-
+await saveUserContext(supabase, user_id, userMemory);
   reply += `\n🔮 Quer que eu analise isso com mais profundidade?`;
-
   return res.json({ reply });
 }
 // ===============================
@@ -539,7 +536,6 @@ if (isConversation && userMemory.lastReport) {
 
   reply += `Se quiser, posso te ajudar a:\n`;
   reply += `• reduzir gastos\n• planejar o próximo mês\n• analisar outra categoria`;
-
   return res.json({ reply });
 }
      // ===============================
@@ -594,7 +590,6 @@ const hasExpenseVerb =
     const [cat] = topCats[0];
     reply += `\n\n🔎 Notei que você costuma falar bastante sobre **${cat}**.`;
   }
-
   return res.json({ reply });
 }
 const extracted = extractExpenses(message);
@@ -602,22 +597,29 @@ if (!extracted.length) {
   const reply = await conversaLivreComIA(message);
   return res.json({ reply });
 }
-    userMemory.expenses = extracted.map(e => ({
-      ...e,
-      category: classifyCategory(e.description)
-    }));
-    userMemory.state = "preview";
+   userMemory.expenses = extracted.map(e => ({
+  ...e,
+  category: classifyCategory(e.description)
+}));
 
-    let preview = "🧾 Posso registrar assim?\n\n";
-   userMemory.expenses.forEach((e, i) => {
-      preview += `${i + 1}) ${e.description} — ${
-        e.amount === null ? "Valor não informado" : `R$ ${e.amount}`
-      } — ${e.category}\n`;
-    });   
+// entra em modo preview
+userMemory.state = "preview";
 
- preview += `\n${ORACLE.askConfirm}`;
+// monta mensagem de confirmação
+let preview = "🧾 Posso registrar assim?\n\n";
+
+userMemory.expenses.forEach((e, i) => {
+  preview += `${i + 1}) ${e.description} — ${
+    e.amount === null ? "Valor não informado" : `R$ ${e.amount}`
+  } — ${e.category}\n`;
+});
+
+preview += `\n${ORACLE.askConfirm}`;
+
+// 🔐 SALVA O ESTADO DE PREVIEW NO SUPABASE (AJUSTE IMPORTANTE)
+await saveUserContext(supabase, user_id, userMemory);
+
 return res.json({ reply: preview });
-
 } catch (err) {
   console.error(err);
   return res.status(500).json({
