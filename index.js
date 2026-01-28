@@ -1,7 +1,7 @@
 import express from "express";
 import { createClient } from "@supabase/supabase-js";
 import { conversaLivreComIA } from "./chat/conversaLivre.js";
-import { memory } from "./chat/memory.store.js";
+import { getUserMemory } from "./chat/memory.store.js";
 
 /* ===============================
    SUPABASE
@@ -370,6 +370,7 @@ const extractExpenses = (text) => {
 app.post("/oraculo", async (req, res) => {
   try {
     const { message, user_id } = req.body;
+     const userMemory = getUserMemory(user_id);
     if (!message || !user_id) {
       return res.json({ reply: ORACLE.askClarify });
     }
@@ -416,11 +417,12 @@ const isConversation =
             is_recurring: false
           });
         }
-        memory[user_id] = { state: "idle", expenses: [] };
-        return res.json({ reply: ORACLE.saved });
+         userMemory.state = "idle";
+userMemory.expenses = [];
+delete userMemory.lastReport;
+
+return res.json({ reply: ORACLE.saved });
       }
-      memory[user_id] = { state: "idle", expenses: [] };
-    }
 // ===============================
 // RELATÓRIO MENSAL
 // ===============================
@@ -468,7 +470,7 @@ if (isReportRequest) {
     reply += `• ${cat}: R$ ${val.toFixed(2)} (${pct}%)\n`;
   }
 
-  memory[user_id].lastReport = { total, byCategory };
+  userMemory.lastReport = { total, byCategory };
 
   reply += `\n🔮 Quer que eu analise isso com mais profundidade?`;
 
@@ -477,8 +479,8 @@ if (isReportRequest) {
 // ===============================
 // CONVERSA SOBRE RELATÓRIO
 // ===============================
-if (isConversation) {
-  const { total, byCategory } = memory[user_id].lastReport;
+if (isConversation && userMemory.lastReport) {
+  const { total, byCategory } = userMemory.lastReport;
 
   const highest = Object.entries(byCategory)
     .sort((a, b) => b[1] - a[1])[0];
@@ -514,14 +516,14 @@ if (!extracted.length) {
   const reply = await conversaLivreComIA(message);
   return res.json({ reply });
 }
-    memory[user_id].expenses = extracted.map(e => ({
+    userMemory.expenses = extracted.map(e => ({
       ...e,
       category: classifyCategory(e.description)
     }));
-    memory[user_id].state = "preview";
+    userMemory.state = "preview";
 
     let preview = "🧾 Posso registrar assim?\n\n";
-    memory[user_id].expenses.forEach((e, i) => {
+   userMemory.expenses.forEach((e, i) => {
       preview += `${i + 1}) ${e.description} — ${
         e.amount === null ? "Valor não informado" : `R$ ${e.amount}`
       } — ${e.category}\n`;
