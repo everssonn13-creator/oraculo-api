@@ -364,6 +364,28 @@ const extractExpenses = (text) => {
 
   return expenses;
 };
+function inferUserProfile(userMemory) {
+  const { interactions, totalExpenses, topCategories } = userMemory.patterns;
+
+  const categoriesCount = Object.keys(topCategories || {}).length;
+
+  // ECONÔMICO
+  if (totalExpenses < 500 && interactions > 5) {
+    return "economico";
+  }
+
+  // IMPULSIVO
+  if (categoriesCount >= 4 && interactions < 5) {
+    return "impulsivo";
+  }
+
+  // CAUTELOSO
+  if (interactions >= 6 && totalExpenses < 1000) {
+    return "cauteloso";
+  }
+
+  return "neutro";
+}
 /* ===============================
    ROTA PRINCIPAL
 ================================ */
@@ -511,28 +533,46 @@ const hasExpenseVerb =
   lowerMsg.includes("fatura") ||
   lowerMsg.includes("cartão");
 
-if (!hasValue && !hasExpenseVerb && !isReportRequest) {
+ if (!hasValue && !hasExpenseVerb && !isReportRequest) {
   let reply = await conversaLivreComIA(message);
 
-if (userMemory.patterns.interactions === 1) {
-  reply = `🔮 Primeira vez por aqui? Fica à vontade.\n\n${reply}`;
-}
+  // PERFIL COMPORTAMENTAL (FASE 3 - PASSO 5)
+  const profile = inferUserProfile(userMemory);
 
-if (userMemory.patterns.interactions > 3) {
-  reply = `🙂 Bom te ver de novo por aqui.\n\n${reply}`;
-}
+  if (profile === "economico") {
+    reply = `💡 Dá pra perceber que você costuma cuidar bem do dinheiro.\n\n${reply}`;
+  }
 
-if (userMemory.patterns.interactions > 10) {
-  reply = `😄 Já virou hábito passar por aqui, né?\n\n${reply}`;
-}
-   const topCats = Object.entries(userMemory.patterns.topCategories || {})
-  .sort((a, b) => b[1] - a[1]);
+  if (profile === "impulsivo") {
+    reply = `⚡ Parece que suas decisões são bem rápidas — isso tem seu lado bom.\n\n${reply}`;
+  }
 
-if (topCats.length && userMemory.patterns.interactions > 5) {
-  const [cat] = topCats[0];
+  if (profile === "cauteloso") {
+    reply = `🧘 Você costuma pensar antes de agir, isso ajuda muito.\n\n${reply}`;
+  }
 
-  reply += `\n\n🔎 Notei que você costuma falar bastante sobre **${cat}**.`;
-}
+  // MEMÓRIA DE INTERAÇÃO
+  if (userMemory.patterns.interactions === 1) {
+    reply = `🔮 Primeira vez por aqui? Fica à vontade.\n\n${reply}`;
+  }
+
+  if (userMemory.patterns.interactions > 3) {
+    reply = `🙂 Bom te ver de novo por aqui.\n\n${reply}`;
+  }
+
+  if (userMemory.patterns.interactions > 10) {
+    reply = `😄 Já virou hábito passar por aqui, né?\n\n${reply}`;
+  }
+
+  // PADRÕES DE CATEGORIA
+  const topCats = Object.entries(userMemory.patterns.topCategories || {})
+    .sort((a, b) => b[1] - a[1]);
+
+  if (topCats.length && userMemory.patterns.interactions > 5) {
+    const [cat] = topCats[0];
+    reply += `\n\n🔎 Notei que você costuma falar bastante sobre **${cat}**.`;
+  }
+
   return res.json({ reply });
 }
 const extracted = extractExpenses(message);
@@ -551,7 +591,7 @@ if (!extracted.length) {
       preview += `${i + 1}) ${e.description} — ${
         e.amount === null ? "Valor não informado" : `R$ ${e.amount}`
       } — ${e.category}\n`;
-    });
+    });   
 
  preview += `\n${ORACLE.askConfirm}`;
 return res.json({ reply: preview });
