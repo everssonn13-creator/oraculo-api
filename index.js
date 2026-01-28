@@ -364,18 +364,6 @@ const extractExpenses = (text) => {
 
   return expenses;
 };
-const data = await response.json();
-
-    return (
-      data?.choices?.[0]?.message?.content ||
-      "🔮 Vamos olhar isso com calma. Pode me contar um pouco mais?"
-    );
-
-  } catch (err) {
-    console.error("Erro OpenAI:", err);
-    return "🔮 Algo ficou nebuloso por um instante… quer tentar explicar de outro jeito?";
-  }
-}
 /* ===============================
    ROTA PRINCIPAL
 ================================ */
