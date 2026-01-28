@@ -54,3 +54,47 @@ export function registerInteraction(userMemory) {
   if (!userMemory) return;
   userMemory.patterns.interactions += 1;
 }
+/**
+ * Salva o contexto do usuário no Supabase
+ */
+export async function saveUserContext(supabase, userId, userMemory) {
+  const { interactions, totalExpenses, topCategories } = userMemory.patterns;
+
+  await supabase
+    .from("user_context")
+    .upsert({
+      user_id: userId,
+      interactions,
+      total_expenses: totalExpenses,
+      top_categories: topCategories,
+      profile: inferProfileFromPatterns(userMemory),
+      updated_at: new Date().toISOString()
+    }, { onConflict: "user_id" });
+}
+
+/**
+ * Carrega o contexto do usuário do Supabase
+ */
+export async function loadUserContext(supabase, userId, userMemory) {
+  const { data } = await supabase
+    .from("user_context")
+    .select("*")
+    .eq("user_id", userId)
+    .single();
+
+  if (!data) return;
+
+  userMemory.patterns.interactions = data.interactions ?? 0;
+  userMemory.patterns.totalExpenses = data.total_expenses ?? 0;
+  userMemory.patterns.topCategories = data.top_categories ?? {};
+}
+function inferProfileFromPatterns(userMemory) {
+  const { interactions, totalExpenses, topCategories } = userMemory.patterns;
+  const categoriesCount = Object.keys(topCategories || {}).length;
+
+  if (totalExpenses < 500 && interactions > 5) return "economico";
+  if (categoriesCount >= 4 && interactions < 5) return "impulsivo";
+  if (interactions >= 6 && totalExpenses < 1000) return "cauteloso";
+
+  return "neutro";
+}
