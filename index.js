@@ -1,6 +1,7 @@
 import express from "express";
 import { createClient } from "@supabase/supabase-js";
 import { conversaLivreComIA } from "./chat/conversaLivre.js";
+import { memory } from "./chat/memory.store.js";
 
 /* ===============================
    SUPABASE
@@ -107,8 +108,7 @@ onde a pessoa se sinta confortável para continuar falando.
 `;
 /* ===============================
    MEMÓRIA (ESTADO)
-================================ */
-const memory = {};
+================================ */   
 /*
 memory[user_id] = {
   state: "idle" | "preview",
