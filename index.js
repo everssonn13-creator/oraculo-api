@@ -398,14 +398,32 @@ function inferUserProfile(userMemory) {
 app.post("/oraculo", async (req, res) => {
   try {
     const { message, user_id } = req.body;
-     const userMemory = getUserMemory(user_id);
-     // Carrega contexto persistido (não bloqueia o fluxo)
-await loadUserContext(supabase, user_id, userMemory);
-     registerInteraction(userMemory);
-     await saveUserContext(supabase, user_id, userMemory);
+
+    // validação básica
     if (!message || !user_id) {
       return res.json({ reply: ORACLE.askClarify });
     }
+
+    // memória em runtime
+    const userMemory = getUserMemory(user_id);
+
+    // ===============================
+    // FASE 4 – PASSO 1
+    // Carrega contexto persistido (Supabase)
+    // ===============================
+    await loadUserContext(supabase, user_id, userMemory);
+
+    // ===============================
+    // FASE 3 – continua normalmente
+    // registra interação
+    // ===============================
+    registerInteraction(userMemory);
+
+    // ===============================
+    // DETECTOR DE INTENÇÃO
+    // ===============================
+    const lowerMsg = message.toLowerCase();
+
 // ===============================
 // DETECTOR DE INTENÇÃO
 // ===============================
