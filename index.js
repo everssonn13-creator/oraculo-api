@@ -1,7 +1,13 @@
 import express from "express";
 import { createClient } from "@supabase/supabase-js";
 import { conversaLivreComIA } from "./chat/conversaLivre.js";
-import { getUserMemory, registerInteraction } from "./chat/memory.store.js";
+import {
+  getUserMemory,
+  registerInteraction,
+  updatePatterns,
+  saveUserContext,
+  loadUserContext
+} from "./chat/memory.store.js";
 
 /* ===============================
    SUPABASE
@@ -393,7 +399,10 @@ app.post("/oraculo", async (req, res) => {
   try {
     const { message, user_id } = req.body;
      const userMemory = getUserMemory(user_id);
+     // Carrega contexto persistido (não bloqueia o fluxo)
+await loadUserContext(supabase, user_id, userMemory);
      registerInteraction(userMemory);
+     await saveUserContext(supabase, user_id, userMemory);
     if (!message || !user_id) {
       return res.json({ reply: ORACLE.askClarify });
     }
@@ -440,6 +449,7 @@ if (userMemory.state === "preview") {
     }
 // atualiza memória contextual
 updatePatterns(userMemory);
+await saveUserContext(supabase, user_id, userMemory);
 
 // reseta estado de fluxo
 userMemory.state = "idle";
