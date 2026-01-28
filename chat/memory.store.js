@@ -1,41 +1,37 @@
-// Memória simples do chat (in-memory)
-// Não persistente – reinicia quando o servidor reinicia
+// Memória em tempo de execução (in-memory)
+// Reinicia quando o servidor reinicia
 
-export const memory = {};
+const memory = {};
 
-/**
- * Garante que o usuário sempre tenha uma estrutura de memória válida
- */
-export function getUserMemory(user_id) {
-  if (!memory[user_id]) {
-    memory[user_id] = {
-      // Estado do fluxo (ex: idle, preview, confirming)
+export function getUserMemory(userId) {
+  if (!memory[userId]) {
+    memory[userId] = {
       state: "idle",
+      expenses: [],
+      lastReport: null,
 
-      // Última intenção detectada (ex: expense, income, conversation)
-      lastIntent: null,
-
-      // Última mensagem do usuário
-      lastMessage: "",
-
-      // Contexto livre para a conversa (ex: assunto atual)
-      context: {},
-
-      // Despesas pendentes de confirmação
-      expenses: []
+      // 🧠 memória contextual
+      patterns: {
+        topCategories: {},   // { Alimentação: 5, Transporte: 2 }
+        totalExpenses: 0,
+        interactions: 0
+      }
     };
   }
 
-  return memory[user_id];
+  return memory[userId];
 }
 
-/**
- * Reseta apenas o fluxo financeiro, mantendo contexto de conversa
- */
-export function resetFinancialFlow(user_id) {
-  if (!memory[user_id]) return;
+export function updatePatterns(userMemory) {
+  userMemory.patterns.interactions += 1;
 
-  memory[user_id].state = "idle";
-  memory[user_id].expenses = [];
-  memory[user_id].lastIntent = null;
+  for (const e of userMemory.expenses) {
+    userMemory.patterns.totalExpenses += e.amount || 0;
+
+    if (!userMemory.patterns.topCategories[e.category]) {
+      userMemory.patterns.topCategories[e.category] = 0;
+    }
+
+    userMemory.patterns.topCategories[e.category] += 1;
+  }
 }
