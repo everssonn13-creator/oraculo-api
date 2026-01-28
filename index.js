@@ -1,7 +1,7 @@
 import express from "express";
 import { createClient } from "@supabase/supabase-js";
 import { conversaLivreComIA } from "./chat/conversaLivre.js";
-import { getUserMemory, updatePatterns } from "./chat/memory.store.js";
+import { getUserMemory, registerInteraction } from "./chat/memory.store.js";
 
 /* ===============================
    SUPABASE
@@ -371,6 +371,7 @@ app.post("/oraculo", async (req, res) => {
   try {
     const { message, user_id } = req.body;
      const userMemory = getUserMemory(user_id);
+     registerInteraction(userMemory);
     if (!message || !user_id) {
       return res.json({ reply: ORACLE.askClarify });
     }
