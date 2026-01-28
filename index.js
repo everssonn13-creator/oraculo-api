@@ -389,7 +389,7 @@ const isReportRequest =
   lowerMsg.includes("gastei com");
 
 const isConversation =
-  memory[user_id]?.lastReport &&
+  userMemory.lastReport &&
   (
     lowerMsg.includes("o que você acha") ||
     lowerMsg.includes("oq vc acha") ||
@@ -400,29 +400,29 @@ const isConversation =
     lowerMsg.includes("entendi")
   );
 
-    if (!memory[user_id]) memory[user_id] = { state: "idle", expenses: [] };
+if (userMemory.state === "preview") {
+  if (["sim", "ok", "confirmar"].includes(lowerMsg)) {
+    for (const e of userMemory.expenses) {
+      await supabase.from("despesas").insert({
+        user_id,
+        description: e.description,
+        amount: e.amount,
+        category: e.category,
+        expense_date: e.date,
+        data_vencimento: e.date,
+        status: "pendente",
+        expense_type: "Variável",
+        is_recurring: false
+      });
+    }
 
-    if (memory[user_id].state === "preview") {
-      if (["sim","ok","confirmar"].includes(message.toLowerCase())) {
-        for (const e of memory[user_id].expenses) {
-          await supabase.from("despesas").insert({
-            user_id,
-            description: e.description,
-            amount: e.amount,
-            category: e.category,
-            expense_date: e.date,
-            data_vencimento: e.date,
-            status: "pendente",
-            expense_type: "Variável",
-            is_recurring: false
-          });
-        }
-         userMemory.state = "idle";
-userMemory.expenses = [];
-delete userMemory.lastReport;
+    userMemory.state = "idle";
+    userMemory.expenses = [];
+    delete userMemory.lastReport;
 
-return res.json({ reply: ORACLE.saved });
-      }
+    return res.json({ reply: ORACLE.saved });
+  }
+}
 // ===============================
 // RELATÓRIO MENSAL
 // ===============================
