@@ -1,6 +1,5 @@
 import express from "express";
 import { createClient } from "@supabase/supabase-js";
-import fetch from "node-fetch";
 import { conversaLivreComIA } from "./chat/conversaLivre.js";
 
 /* ===============================
