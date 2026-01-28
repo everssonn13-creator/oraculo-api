@@ -423,12 +423,6 @@ app.post("/oraculo", async (req, res) => {
     // DETECTOR DE INTENÇÃO
     // ===============================
     const lowerMsg = message.toLowerCase();
-
-// ===============================
-// DETECTOR DE INTENÇÃO
-// ===============================
-const lowerMsg = message.toLowerCase();
-
 const isReportRequest =
   lowerMsg.includes("relatório") ||
   lowerMsg.includes("relatorio") ||
