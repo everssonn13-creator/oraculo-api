@@ -54,10 +54,14 @@ export function registerInteraction(userMemory) {
   if (!userMemory) return;
   userMemory.patterns.interactions += 1;
 }
+// ===============================
+// FASE 4 – Persistência de Contexto
+// ===============================
 /**
  * Salva o contexto do usuário no Supabase
  */
 export async function saveUserContext(supabase, userId, userMemory) {
+  if (!userMemory?.patterns) return;
   const { interactions, totalExpenses, topCategories } = userMemory.patterns;
 
   await supabase
