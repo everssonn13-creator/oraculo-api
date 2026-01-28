@@ -394,20 +394,51 @@ function inferUserProfile(userMemory) {
 ====================================================== */
 app.post("/oraculo", async (req, res) => {
   try {
+
+    /* =========================================
+       1️⃣ VALIDAÇÃO INICIAL DA REQUISIÇÃO
+    ========================================= */
     const { message, user_id } = req.body;
 
     if (!message || !user_id) {
       return res.json({ reply: ORACLE.askClarify });
     }
 
+    /* =========================================
+       2️⃣ MEMÓRIA DO USUÁRIO (RUNTIME)
+    ========================================= */
     const userMemory = getUserMemory(user_id);
 
+    /* =========================================
+       3️⃣ CARREGAMENTO DE CONTEXTO PERSISTIDO
+       (SUPABASE → MEMÓRIA EM RUNTIME)
+    ========================================= */
     await loadUserContext(supabase, user_id, userMemory);
 
+    /* =========================================
+       4️⃣ REGISTRO DE INTERAÇÃO / PADRÕES
+    ========================================= */
     registerInteraction(userMemory);
 
+    /* =========================================
+       5️⃣ NORMALIZAÇÃO DA MENSAGEM
+    ========================================= */
     const lowerMsg = message.toLowerCase();
+     /* =========================================
+      6️⃣ DETECÇÃO DE MENSAGEM FINANCEIRA
+    ========================================= */
+    const hasValue = /\d+([.,]\d+)?/.test(message);
 
+    const hasExpenseVerb =
+      lowerMsg.includes("gastei") ||
+      lowerMsg.includes("paguei") ||
+      lowerMsg.includes("comprei") ||
+      lowerMsg.includes("abasteci") ||
+      lowerMsg.includes("fatura") ||
+      lowerMsg.includes("cartão");
+    /* =========================================
+      7️⃣  DETECTOR DE INTENÇÃO — RELATÓRIO
+    ========================================= */
     const isReportRequest =
       lowerMsg.includes("relatório") ||
       lowerMsg.includes("relatorio") ||
@@ -417,6 +448,10 @@ app.post("/oraculo", async (req, res) => {
       lowerMsg.includes("analise") ||
       lowerMsg.includes("gastei com");
 
+    /* =========================================
+       8️⃣ DETECTOR DE CONTINUIDADE
+       (CONVERSA APÓS RELATÓRIO)
+    ========================================= */
     const isConversation =
       userMemory.lastReport &&
       (
@@ -429,7 +464,12 @@ app.post("/oraculo", async (req, res) => {
         lowerMsg.includes("entendi")
       );
 
+    /* =========================================
+    9️⃣ FLUXO DE PREVIEW (CONFIRMAÇÃO)
+    ========================================= */
     if (userMemory.state === "preview") {
+
+      /* ---------- 8.1 CONFIRMAÇÃO POSITIVA ---------- */
       if (["sim", "ok", "confirmar"].includes(lowerMsg)) {
         for (const e of userMemory.expenses) {
           await supabase.from("despesas").insert({
@@ -456,6 +496,7 @@ app.post("/oraculo", async (req, res) => {
         return res.json({ reply: ORACLE.saved });
       }
 
+      /* ---------- 8.2 NEGATIVA / CORREÇÃO ---------- */
       if (["não", "nao", "cancelar", "corrigir"].includes(lowerMsg)) {
         userMemory.state = "idle";
         userMemory.expenses = [];
@@ -468,6 +509,9 @@ app.post("/oraculo", async (req, res) => {
       }
     }
 
+    /* =========================================
+        🔟 FLUXO DE RELATÓRIO MENSAL
+    ========================================= */
     if (isReportRequest) {
       const monthMatch = lowerMsg.match(
         /(janeiro|fevereiro|março|abril|maio|junho|julho|agosto|setembro|outubro|novembro|dezembro)/
@@ -520,6 +564,9 @@ app.post("/oraculo", async (req, res) => {
       return res.json({ reply });
     }
 
+    /* =========================================
+        1️⃣1️⃣ CONVERSA ANALÍTICA SOBRE RELATÓRIO
+    ========================================= */
     if (isConversation && userMemory.lastReport) {
       const { byCategory } = userMemory.lastReport;
 
@@ -535,6 +582,9 @@ app.post("/oraculo", async (req, res) => {
       return res.json({ reply });
     }
 
+    /* =========================================
+        1️⃣2️⃣ CONVERSA HUMANA PÓS-RELATÓRIO
+    ========================================= */
     if (userMemory.state === "post_report" && userMemory.lastReport) {
       const { byCategory, total } = userMemory.lastReport;
 
@@ -547,17 +597,9 @@ app.post("/oraculo", async (req, res) => {
 
       return res.json({ reply });
     }
-
-    const hasValue = /\d+([.,]\d+)?/.test(message);
-
-    const hasExpenseVerb =
-      lowerMsg.includes("gastei") ||
-      lowerMsg.includes("paguei") ||
-      lowerMsg.includes("comprei") ||
-      lowerMsg.includes("abasteci") ||
-      lowerMsg.includes("fatura") ||
-      lowerMsg.includes("cartão");
-
+    /* =========================================
+       1️⃣ 3️⃣ CONVERSA LIVRE (SEM REGISTRO)
+    ========================================= */
     if (!hasValue && !hasExpenseVerb && !isReportRequest) {
       let reply = await conversaLivreComIA(message);
 
@@ -598,6 +640,9 @@ app.post("/oraculo", async (req, res) => {
       return res.json({ reply });
     }
 
+    /* =========================================
+       1️⃣4️⃣ EXTRAÇÃO DE DESPESAS
+    ========================================= */
     const extracted = extractExpenses(message);
 
     if (!extracted.length) {
@@ -605,6 +650,9 @@ app.post("/oraculo", async (req, res) => {
       return res.json({ reply });
     }
 
+    /* =========================================
+       1️⃣5️⃣ CLASSIFICAÇÃO + ENTRADA EM PREVIEW
+    ========================================= */
     userMemory.expenses = extracted.map(e => ({
       ...e,
       category: classifyCategory(e.description)
@@ -627,15 +675,18 @@ app.post("/oraculo", async (req, res) => {
     return res.json({ reply: preview });
 
   } catch (err) {
+
+    /* =========================================
+       ❌ TRATAMENTO DE ERRO GLOBAL DA ROTA
+    ========================================= */
     console.error(err);
     return res.status(500).json({
       reply: "🌪️ As visões se romperam por um instante…"
     });
   }
 });
-
 /* ======================================================
-   1️⃣4️⃣ START
+   1️⃣6️⃣ START
 ====================================================== */
 const PORT = process.env.PORT || 8080;
 app.listen(PORT, () => {
