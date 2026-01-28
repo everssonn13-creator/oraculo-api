@@ -514,8 +514,24 @@ const hasExpenseVerb =
 if (!hasValue && !hasExpenseVerb && !isReportRequest) {
   let reply = await conversaLivreComIA(message);
 
+if (userMemory.patterns.interactions === 1) {
+  reply = `🔮 Primeira vez por aqui? Fica à vontade.\n\n${reply}`;
+}
+
 if (userMemory.patterns.interactions > 3) {
-  reply = `Bom te ver de novo por aqui 🙂\n\n${reply}`;
+  reply = `🙂 Bom te ver de novo por aqui.\n\n${reply}`;
+}
+
+if (userMemory.patterns.interactions > 10) {
+  reply = `😄 Já virou hábito passar por aqui, né?\n\n${reply}`;
+}
+   const topCats = Object.entries(userMemory.patterns.topCategories || {})
+  .sort((a, b) => b[1] - a[1]);
+
+if (topCats.length && userMemory.patterns.interactions > 5) {
+  const [cat] = topCats[0];
+
+  reply += `\n\n🔎 Notei que você costuma falar bastante sobre **${cat}**.`;
 }
   return res.json({ reply });
 }
