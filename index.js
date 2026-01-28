@@ -408,6 +408,7 @@ app.post("/oraculo", async (req, res) => {
        2️⃣ MEMÓRIA DO USUÁRIO (RUNTIME)
     ========================================= */
     const userMemory = getUserMemory(user_id);
+    userMemory.flags = userMemory.flags || {};
 
     /* =========================================
        3️⃣ CARREGAMENTO DE CONTEXTO PERSISTIDO
@@ -597,49 +598,67 @@ app.post("/oraculo", async (req, res) => {
 
       return res.json({ reply });
     }
-    /* =========================================
-       1️⃣3️⃣ CONVERSA LIVRE (SEM REGISTRO)
-    ========================================= */
-    if (!hasValue && !hasExpenseVerb && !isReportRequest) {
-      let reply = await conversaLivreComIA(message);
+  /* =========================================
+   1️⃣3️⃣ CONVERSA LIVRE (SEM REGISTRO)
+========================================= */
+if (!hasValue && !hasExpenseVerb && !isReportRequest) {
+  let reply = await conversaLivreComIA(message);
 
-      const profile = inferUserProfile(userMemory);
+  const profile = inferUserProfile(userMemory);
 
-      if (profile === "economico") {
-        reply = `💡 Dá pra perceber que você costuma cuidar bem do dinheiro.\n\n${reply}`;
-      }
+  // Comentário de perfil — apenas UMA vez
+  if (profile === "economico" && !userMemory.flags.profileCommented) {
+    reply = `💡 Dá pra perceber que você costuma cuidar bem do dinheiro.\n\n${reply}`;
+    userMemory.flags.profileCommented = true;
+  }
 
-      if (profile === "impulsivo") {
-        reply = `⚡ Parece que suas decisões são bem rápidas — isso tem seu lado bom.\n\n${reply}`;
-      }
+  if (profile === "impulsivo" && !userMemory.flags.profileCommented) {
+    reply = `⚡ Parece que suas decisões são bem rápidas — isso tem seu lado bom.\n\n${reply}`;
+    userMemory.flags.profileCommented = true;
+  }
 
-      if (profile === "cauteloso") {
-        reply = `🧘 Você costuma pensar antes de agir, isso ajuda muito.\n\n${reply}`;
-      }
+  if (profile === "cauteloso" && !userMemory.flags.profileCommented) {
+    reply = `🧘 Você costuma pensar antes de agir, isso ajuda muito.\n\n${reply}`;
+    userMemory.flags.profileCommented = true;
+  }
 
-      if (userMemory.patterns.interactions === 1) {
-        reply = `🔮 Primeira vez por aqui? Fica à vontade.\n\n${reply}`;
-      }
+  // Primeira interação — apenas uma vez
+  if (userMemory.patterns.interactions === 1 && !userMemory.flags.firstTime) {
+    reply = `🔮 Primeira vez por aqui? Fica à vontade.\n\n${reply}`;
+    userMemory.flags.firstTime = true;
+  }
 
-      if (userMemory.patterns.interactions > 3) {
-        reply = `🙂 Bom te ver de novo por aqui.\n\n${reply}`;
-      }
+  // Saudação recorrente — apenas uma vez
+  if (userMemory.patterns.interactions > 3 && !userMemory.flags.greeted) {
+    reply = `🙂 Bom te ver de novo por aqui.\n\n${reply}`;
+    userMemory.flags.greeted = true;
+  }
 
-      if (userMemory.patterns.interactions > 10) {
-        reply = `😄 Já virou hábito passar por aqui, né?\n\n${reply}`;
-      }
+  // Hábito frequente — apenas uma vez
+  if (userMemory.patterns.interactions > 10 && !userMemory.flags.habitMentioned) {
+    reply = `😄 Já virou hábito passar por aqui, né?\n\n${reply}`;
+    userMemory.flags.habitMentioned = true;
+  }
 
-      const topCats = Object.entries(userMemory.patterns.topCategories || {})
-        .sort((a, b) => b[1] - a[1]);
+  // Observação de categoria dominante — controlada
+  const topCats = Object.entries(userMemory.patterns.topCategories || {})
+    .sort((a, b) => b[1] - a[1]);
 
-      if (topCats.length && userMemory.patterns.interactions > 5) {
-        const [cat] = topCats[0];
-        reply += `\n\n🔎 Notei que você costuma falar bastante sobre **${cat}**.`;
-      }
+  if (
+    topCats.length &&
+    userMemory.patterns.interactions > 5 &&
+    !userMemory.flags.topCategoryMentioned
+  ) {
+    const [cat] = topCats[0];
+    reply += `\n\n🔎 Notei que você costuma falar bastante sobre **${cat}**.`;
+    userMemory.flags.topCategoryMentioned = true;
+  }
 
-      return res.json({ reply });
-    }
+  // 🔐 Persistir flags para não repetir
+  await saveUserContext(supabase, user_id, userMemory);
 
+  return res.json({ reply });
+}
     /* =========================================
        1️⃣4️⃣ EXTRAÇÃO DE DESPESAS
     ========================================= */
