@@ -512,7 +512,11 @@ const hasExpenseVerb =
   lowerMsg.includes("cartão");
 
 if (!hasValue && !hasExpenseVerb && !isReportRequest) {
-  const reply = await conversaLivreComIA(message);
+  let reply = await conversaLivreComIA(message);
+
+if (userMemory.patterns.interactions > 3) {
+  reply = `Bom te ver de novo por aqui 🙂\n\n${reply}`;
+}
   return res.json({ reply });
 }
 const extracted = extractExpenses(message);
