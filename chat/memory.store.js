@@ -1,20 +1,26 @@
+// =====================================
 // Memória em tempo de execução (in-memory)
 // Reinicia quando o servidor reinicia
+// =====================================
 
 const memory = {};
 
+/**
+ * Retorna ou inicializa a memória do usuário
+ */
 export function getUserMemory(userId) {
   if (!memory[userId]) {
     memory[userId] = {
-      state: "idle",
+      // controle de fluxo
+      state: "idle",        // idle | preview
       expenses: [],
       lastReport: null,
 
-      // 🧠 memória contextual
+      // 🧠 memória contextual (Fase 3)
       patterns: {
-        topCategories: {},   // { Alimentação: 5, Transporte: 2 }
-        totalExpenses: 0,
-        interactions: 0
+        interactions: 0,    // quantas mensagens já trocou
+        totalExpenses: 0,   // soma dos gastos já registrados
+        topCategories: {}   // { Alimentação: 3, Transporte: 1 }
       }
     };
   }
@@ -22,8 +28,12 @@ export function getUserMemory(userId) {
   return memory[userId];
 }
 
+/**
+ * Atualiza padrões com base nas despesas confirmadas
+ * (chamar SOMENTE quando o usuário confirma registros)
+ */
 export function updatePatterns(userMemory) {
-  userMemory.patterns.interactions += 1;
+  if (!userMemory || !userMemory.expenses?.length) return;
 
   for (const e of userMemory.expenses) {
     userMemory.patterns.totalExpenses += e.amount || 0;
@@ -35,10 +45,12 @@ export function updatePatterns(userMemory) {
     userMemory.patterns.topCategories[e.category] += 1;
   }
 }
-// ===============================
-// FASE 3 – CONTEXTO CONVERSACIONAL
-// ===============================
 
+/**
+ * Registra qualquer interação do usuário
+ * (chamar no início da rota /oraculo)
+ */
 export function registerInteraction(userMemory) {
+  if (!userMemory) return;
   userMemory.patterns.interactions += 1;
 }
