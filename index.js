@@ -17,10 +17,10 @@ import { saneamentoRouter } from "./saneamento/router.js";
 /* ======================================================
    2️⃣ SUPABASE
 ====================================================== */
-const supabase = createClient(
-  process.env.SUPABASE_URL,
-  process.env.SUPABASE_SERVICE_ROLE_KEY
-);
+// Opcional: sem as chaves, só o Oráculo Financeiro fica desativado
+const supabase = process.env.SUPABASE_URL && process.env.SUPABASE_SERVICE_ROLE_KEY
+  ? createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_ROLE_KEY)
+  : null;
 
 /* ======================================================
    3️⃣ APP EXPRESS
@@ -400,6 +400,10 @@ app.post("/oraculo", async (req, res) => {
     /* =========================================
        1️⃣ VALIDAÇÃO INICIAL DA REQUISIÇÃO
     ========================================= */
+    if (!supabase) {
+      return res.status(503).json({ reply: "🔒 Oráculo Financeiro desativado: configure SUPABASE_URL e SUPABASE_SERVICE_ROLE_KEY." });
+    }
+
     const { message, user_id } = req.body;
 
     if (!message || !user_id) {
