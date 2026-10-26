@@ -1,4 +1,5 @@
 import fetch from "node-fetch";
+import Anthropic from "@anthropic-ai/sdk";
 import { buscarLicitacoes, radarLicitacoes, resumoPorSegmento } from "./sources/pncp.js";
 import { buscarDiariosOficiais } from "./sources/diarios.js";
 import { buscarNoticias } from "./sources/noticias.js";
@@ -13,7 +14,10 @@ import { estimarMercadoLodo, PROCESSOS } from "./knowledge/mercadoLodo.js";
 // e só afirma números que vieram das ferramentas.
 // =====================================
 
-const MODEL = process.env.SANEAMENTO_MODEL || "gpt-4o-mini";
+// Claude tem prioridade quando ANTHROPIC_API_KEY existe; senão usa OpenAI
+export const provedorIA = () =>
+  process.env.ANTHROPIC_API_KEY ? "claude" : process.env.OPENAI_API_KEY ? "openai" : null;
+const modeloPadrao = () => process.env.SANEAMENTO_MODEL || (provedorIA() === "claude" ? "claude-opus-5-5" : "gpt-4o-mini");
 const MAX_ROUNDS = 6;
 const OPENAI_URL = `${process.env.OPENAI_BASE_URL || "https://api.openai.com/v1"}/chat/completions`;
 
@@ -154,7 +158,7 @@ async function chamarModelo(messages, maxTokens, { semFerramentas = false } = {}
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${process.env.OPENAI_API_KEY}` },
     body: JSON.stringify({
-      model: MODEL,
+      model: modeloPadrao(),
       messages,
       tools: TOOLS.map(t => ({ type: "function", function: t })),
       tool_choice: semFerramentas ? "none" : "auto",
@@ -167,32 +171,80 @@ async function chamarModelo(messages, maxTokens, { semFerramentas = false } = {}
   return data.choices[0].message;
 }
 
-/**
- * historico: [{ role: "user" | "assistant", content: string }]
- * modo: "chat" | "estudo"
- */
-export async function consultarAssessor({ historico = [], modo = "chat" }) {
-  if (!process.env.OPENAI_API_KEY) {
-    throw new Error("OPENAI_API_KEY não configurada no servidor — o assessor de IA está desativado (os painéis de dados continuam funcionando).");
-  }
+// ---------- Claude (Anthropic) ----------
+let anthropic = null;
 
+async function consultarClaude(historico, modo, fontesConsultadas) {
+  anthropic ??= new Anthropic();
+  const model = modeloPadrao();
+  const tools = TOOLS.map(t => ({ name: t.name, description: t.description, input_schema: t.parameters }));
+
+  // A conversa precisa começar com o usuário
+  const messages = [...historico];
+  while (messages.length && messages[0].role !== "user") messages.shift();
+
+  const pedir = (extra = {}) => anthropic.beta.messages.create({
+    model,
+    max_tokens: 16000,
+    system: systemPrompt() + (modo === "estudo" ? ESTUDO_PROMPT : ""),
+    tools,
+    messages,
+    output_config: { effort: modo === "estudo" ? "high" : "medium" },
+    // Se um classificador de segurança recusar, a API tenta outro modelo automaticamente
+    betas: ["server-side-fallback-2026-07-01"],
+    fallbacks: "default",
+    ...extra
+  });
+
+  const textoDe = (r) => r.content.filter(b => b.type === "text").map(b => b.text).join("\n\n").trim();
+
+  for (let rodada = 0; rodada <= MAX_ROUNDS; rodada++) {
+    const ultima = rodada === MAX_ROUNDS;
+    const r = await pedir(ultima ? { tool_choice: { type: "none" } } : {});
+
+    if (r.stop_reason === "refusal") {
+      return "Não consegui responder a essa pergunta. Tente reformular com foco no mercado de saneamento.";
+    }
+
+    // Conteúdo completo (inclui blocos de raciocínio) volta para a conversa sem alterações
+    messages.push({ role: "assistant", content: r.content });
+    if (r.stop_reason === "pause_turn") continue;
+
+    const chamadas = r.content.filter(b => b.type === "tool_use");
+    if (!chamadas.length || ultima) return textoDe(r) || "Não consegui consolidar a análise.";
+
+    const resultados = await Promise.all(chamadas.map(async call => {
+      let conteudo;
+      try {
+        conteudo = await executarFerramenta(call.name, call.input || {});
+      } catch (err) {
+        conteudo = { erro: err.message };
+      }
+      fontesConsultadas.push({ ferramenta: call.name, args: call.input, ok: !conteudo?.erro });
+      return { type: "tool_result", tool_use_id: call.id, content: truncar(conteudo), ...(conteudo?.erro ? { is_error: true } : {}) };
+    }));
+
+    // Todos os resultados numa única mensagem; na última rodada, pede a consolidação
+    const conteudoUsuario = rodada === MAX_ROUNDS - 1
+      ? [...resultados, { type: "text", text: "Consolide agora a resposta final com os dados já obtidos." }]
+      : resultados;
+    messages.push({ role: "user", content: conteudoUsuario });
+  }
+}
+
+// ---------- OpenAI ----------
+async function consultarOpenAI(historico, modo, fontesConsultadas) {
   const messages = [
     { role: "system", content: systemPrompt() + (modo === "estudo" ? ESTUDO_PROMPT : "") },
     ...historico
-      .filter(m => ["user", "assistant"].includes(m.role) && typeof m.content === "string")
-      .slice(-12)
   ];
-
-  const fontesConsultadas = [];
   const maxTokens = modo === "estudo" ? 4000 : 1500;
 
   for (let rodada = 0; rodada < MAX_ROUNDS; rodada++) {
     const msg = await chamarModelo(messages, maxTokens);
     messages.push(msg);
 
-    if (!msg.tool_calls?.length) {
-      return { resposta: msg.content, ferramentas: fontesConsultadas, modelo: MODEL };
-    }
+    if (!msg.tool_calls?.length) return msg.content;
 
     const resultados = await Promise.all(msg.tool_calls.map(async call => {
       let args = {};
@@ -212,5 +264,27 @@ export async function consultarAssessor({ historico = [], modo = "chat" }) {
   // Estourou as rodadas: força uma resposta final sem ferramentas
   messages.push({ role: "user", content: "Consolide agora a resposta final com os dados já obtidos." });
   const final = await chamarModelo(messages, maxTokens, { semFerramentas: true });
-  return { resposta: final.content || "Não consegui consolidar a análise.", ferramentas: fontesConsultadas, modelo: MODEL };
+  return final.content || "Não consegui consolidar a análise.";
+}
+
+/**
+ * historico: [{ role: "user" | "assistant", content: string }]
+ * modo: "chat" | "estudo"
+ */
+export async function consultarAssessor({ historico = [], modo = "chat" }) {
+  const provedor = provedorIA();
+  if (!provedor) {
+    throw new Error("Nenhuma chave de IA configurada no servidor (ANTHROPIC_API_KEY ou OPENAI_API_KEY) — o assessor está desativado (os painéis de dados continuam funcionando).");
+  }
+
+  const hist = historico
+    .filter(m => ["user", "assistant"].includes(m.role) && typeof m.content === "string" && m.content.trim())
+    .slice(-12);
+
+  const fontesConsultadas = [];
+  const resposta = provedor === "claude"
+    ? await consultarClaude(hist, modo, fontesConsultadas)
+    : await consultarOpenAI(hist, modo, fontesConsultadas);
+
+  return { resposta, ferramentas: fontesConsultadas, modelo: modeloPadrao() };
 }
