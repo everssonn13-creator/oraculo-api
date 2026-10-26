@@ -52,3 +52,36 @@ test("estima mercado de lodo para 500 mil hab em UASB", () => {
 test("base curada sempre tem fonte", () => {
   for (const x of [...CONCESSOES, ...INDICADORES]) assert.match(x.fonte, /^https:\/\//);
 });
+
+import { sanitizarPainel } from "../saneamento/visuais.js";
+import { expandirLocal } from "../saneamento/knowledge/regioes.js";
+import { dividirEmTrechos } from "../saneamento/knowledge/biblioteca.js";
+
+test("expande regiões e nomes de estados em UFs", () => {
+  assert.equal(expandirLocal("Nordeste").length, 9);
+  assert.deepEqual(expandirLocal("bahia"), ["BA"]);
+  assert.deepEqual(expandirLocal("SP"), ["SP"]);
+  assert.equal(expandirLocal("Brasil").length, 27);
+});
+
+test("sanitiza painel do modelo", () => {
+  const p = sanitizarPainel({
+    titulo: "X",
+    mapa: { destacar: ["Sul"], valores: { "Paraná": "1.234", XX: 3 } },
+    kpis: [{ rotulo: "a", valor: "1" }, { rotulo: "", valor: "2" }],
+    graficos: [{ titulo: "g", itens: [{ rotulo: "r", valor: "x" }] }],
+    fontes: [{ nome: "f", url: "javascript:alert(1)" }]
+  });
+  assert.deepEqual(p.mapa.destacar, ["PR", "SC", "RS"]);
+  assert.deepEqual(p.mapa.valores, { PR: 1234 });
+  assert.equal(p.kpis.length, 1);
+  assert.equal(p.graficos, undefined);
+  assert.equal(p.fontes[0].url, null);
+});
+
+test("divide documentos longos em trechos com sobreposição", () => {
+  const texto = Array.from({ length: 60 }, (_, i) => `Frase número ${i} sobre lodo e centrífugas.`).join(" ");
+  const t = dividirEmTrechos(texto, 500, 100);
+  assert.ok(t.length > 3);
+  assert.ok(t.every(x => x.length <= 520));
+});

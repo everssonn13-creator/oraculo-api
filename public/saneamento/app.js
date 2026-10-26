@@ -1,272 +1,353 @@
 // =====================================
-// Oráculo do Saneamento — front-end
+// Oráculo do Saneamento — arena de conversa com painéis visuais
 // =====================================
 const API = "/api/saneamento";
-const UFS = "AC AL AP AM BA CE DF ES GO MA MT MS MG PA PB PR PE PI RJ RN RS RO RR SC SP SE TO".split(" ");
 
 const $ = (s, el = document) => el.querySelector(s);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#39;" }[c]));
-const brl = (v) => v == null ? "—" : v.toLocaleString("pt-BR", { style: "currency", currency: "BRL", maximumFractionDigits: 0 });
-const num = (v, d = 0) => v == null ? "—" : Number(v).toLocaleString("pt-BR", { maximumFractionDigits: d });
-const dataBR = (s) => s ? new Date(s).toLocaleDateString("pt-BR") : "—";
-const link = (url, txt = "abrir ↗") => url ? `<a href="${esc(url)}" target="_blank" rel="noopener">${esc(txt)}</a>` : "";
+const fmt = (v, d = 0) => v == null ? "—" : Number(v).toLocaleString("pt-BR", { maximumFractionDigits: d });
+const fmtCompacto = (v) => {
+  const a = Math.abs(v);
+  if (a >= 1e9) return `${fmt(v / 1e9, 1)} bi`;
+  if (a >= 1e6) return `${fmt(v / 1e6, 1)} mi`;
+  if (a >= 1e4) return `${fmt(v / 1e3, 0)} mil`;
+  return fmt(v, 1);
+};
 const erroHtml = (e) => `<div class="erro">⚠ ${esc(e.message || e)}</div>`;
-
-async function api(path, opts) {
-  const res = await fetch(API + path, opts);
-  const data = await res.json().catch(() => ({}));
-  if (!res.ok) throw new Error(data.erro || `Erro ${res.status}`);
-  return data;
-}
+const md = (t) => window.marked && window.DOMPurify ? DOMPurify.sanitize(marked.parse(t || "")) : esc(t).replace(/\n/g, "<br>");
 
 const store = {
   get(k, d) { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch { return d; } },
   set(k, v) { try { localStorage.setItem(k, JSON.stringify(v)); } catch { /* sem storage */ } }
 };
 
-/* ---------- abas ---------- */
-const carregado = new Set();
-function abrir(view) {
-  document.querySelectorAll(".tab").forEach(t => t.classList.toggle("active", t.dataset.view === view));
-  document.querySelectorAll(".view").forEach(v => v.classList.toggle("active", v.id === `view-${view}`));
-  document.body.classList.toggle("show-assessor", view === "assessor");
-  if (!carregado.has(view)) { carregado.add(view); LOADERS[view]?.(); }
-  store.set("aba", view);
-}
-document.querySelectorAll(".tab").forEach(t => t.addEventListener("click", () => abrir(t.dataset.view)));
-document.querySelectorAll("select[name=uf]").forEach(s => UFS.forEach(uf => s.insertAdjacentHTML("beforeend", `<option>${uf}</option>`)));
-
-/* ---------- painel ---------- */
-let PAINEL = null;
-async function carregarPainel() {
-  PAINEL = await api("/painel");
-  const st = $("#status");
-  st.classList.add("ok");
-  st.innerHTML = `<span class="dot"></span> base curada ${dataBR(PAINEL.atualizadoEm + "T12:00:00")} · IA ${PAINEL.assessorAtivo ? `online (${PAINEL.provedorIA === "claude" ? "Claude" : "OpenAI"})` : "offline (configure ANTHROPIC_API_KEY)"}`;
-
-  $("#kpis").innerHTML = PAINEL.indicadores.map(i => `
-    <div class="kpi ${i.id.startsWith("meta") ? "alvo" : ""}">
-      <div class="v">${num(i.valor, 1)}${esc(i.unidade)}</div>
-      <div class="bar"><i style="width:${Math.min(i.valor, 100)}%"></i></div>
-      <div class="n">${esc(i.nome)}</div>
-      <div class="r">${esc(i.referencia)} · ${link(i.fonte, "fonte")}</div>
-    </div>`).join("");
-  $("#nota-indicadores").textContent = PAINEL.notaIndicadores;
-  $("#marco").innerHTML = PAINEL.marcoLegal.map(m => `<li><b>${esc(m.norma)}</b> — ${esc(m.tema)} ${link(m.url, "↗")}</li>`).join("");
-  $("#fontes").innerHTML = PAINEL.fontes.map(f => `<a class="chip" href="${esc(f.url)}" target="_blank" rel="noopener">${esc(f.nome)}</a>`).join("");
-
-  // concessões
-  $("#tab-concessoes").innerHTML = `<thead><tr><th>Data</th><th>UF</th><th>Projeto</th><th>Vencedor</th><th>Valor</th><th>Modelo</th><th>Conf.</th></tr></thead><tbody>${
-    [...PAINEL.concessoes].sort((a, b) => b.ano - a.ano || b.mes - a.mes).map(c => `<tr>
-      <td>${String(c.mes).padStart(2, "0")}/${c.ano}</td><td>${esc(c.uf)}</td>
-      <td>${esc(c.projeto)} ${link(c.fonte, "↗")}</td><td>${esc(c.vencedor)}</td>
-      <td class="num">${c.outorgaBi ? `R$ ${num(c.outorgaBi, 2)} bi` : "—"}</td>
-      <td>${esc(c.modelo)}</td><td><span class="tag ${esc(c.confianca)}">${esc(c.confianca)}</span></td></tr>`).join("")}</tbody>`;
-  $("#players").innerHTML = PAINEL.players.map(p => `<div class="player"><b>${esc(p.nome)}</b><small>${esc(p.tipo)}</small><p>${esc(p.destaque)}</p></div>`).join("");
-
-  // centrífugas
-  const c = PAINEL.centrifugas;
-  $("#sel-processo").innerHTML = Object.entries(PAINEL.processosLodo).map(([k, v]) => `<option value="${esc(k)}">${esc(v)}</option>`).join("");
-  $("#tab-desempenho").innerHTML = `<thead><tr><th>Lodo</th><th>Torta</th><th>Polímero</th></tr></thead><tbody>${
-    c.desempenhoTipico.map(d => `<tr><td>${esc(d.lodo)}</td><td class="num">${esc(d.torta)}</td><td class="num">${esc(d.polimero)}</td></tr>`).join("")}</tbody>`;
-  $("#nota-desempenho").textContent = c.notaDesempenho;
-  $("#modelos").innerHTML = c.modelosDeNegocio.map(m => `<li>${esc(m)}</li>`).join("");
-  $("#vetores").innerHTML = [...c.vetoresDeDemanda, ...c.aplicacoes].map(m => `<li>${esc(m)}</li>`).join("");
-  $("#fabricantes").innerHTML = c.fabricantes.map(f => `<span class="chip">${esc(f)}</span>`).join("");
-  $("#concorrentes").innerHTML = c.tecnologiasConcorrentes.map(f => `<span class="chip">${esc(f)}</span>`).join("");
+async function api(path, opts = {}) {
+  const res = await fetch(API + path, opts);
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) throw new Error(data.erro || `Erro ${res.status}`);
+  return data;
 }
 
-async function carregarSegmentos() {
-  try {
-    const r = await api("/licitacoes");
-    const seg = Object.entries(r.resumoPorSegmento).sort((a, b) => b[1].quantidade - a[1].quantidade);
-    const max = Math.max(1, ...seg.map(s => s[1].quantidade));
-    $("#segmentos").innerHTML = seg.length
-      ? seg.map(([nome, v]) => `<div class="row"><span>${esc(nome)}</span><div class="track"><i style="width:${v.quantidade / max * 100}%"></i></div><b>${v.quantidade}</b></div>`).join("")
-        + `<p class="nota">${r.items.length} editais abertos no radar · atualizado ${new Date(r.atualizadoEm).toLocaleTimeString("pt-BR")}</p>`
-      : `<div class="empty">Nenhum edital retornado pelo PNCP agora.</div>`;
-    if (r.erros?.length) $("#segmentos").insertAdjacentHTML("beforeend", erroHtml(r.erros[0]));
-    renderLicitacoes(r);
-    carregado.add("licitacoes");
-  } catch (e) { $("#segmentos").innerHTML = erroHtml(e); }
+/* ---------- tooltip ---------- */
+const tip = $("#tooltip");
+function mostrarTip(html, ev) {
+  tip.innerHTML = html;
+  tip.classList.add("vis");
+  const x = Math.min(ev.clientX + 14, window.innerWidth - tip.offsetWidth - 8);
+  const y = Math.max(ev.clientY - tip.offsetHeight - 10, 8);
+  tip.style.left = `${x}px`;
+  tip.style.top = `${y}px`;
+}
+const esconderTip = () => tip.classList.remove("vis");
+
+/* ---------- estado ---------- */
+let INFO = { regioes: {}, ufs: {} };
+let MAPA = null;
+let foco = store.get("foco", { tipo: "brasil" });
+let historico = store.get("historico2", []); // [{ role, content, visuais?, ferramentas?, baseUsada?, foco? }]
+
+const ufsDoFoco = (f = foco) =>
+  f.tipo === "uf" ? [f.valor] : f.tipo === "regiao" ? Object.keys(INFO.ufs).filter(u => INFO.ufs[u].regiao === f.valor) : [];
+const rotuloFoco = (f = foco) =>
+  f.tipo === "uf" ? INFO.ufs[f.valor]?.nome || f.valor : f.tipo === "regiao" ? INFO.regioes[f.valor] || f.valor : "Brasil";
+
+/* ---------- mapa ---------- */
+const RAMPA = ["--seq-1", "--seq-2", "--seq-3", "--seq-4", "--seq-5"].map(v => getComputedStyle(document.documentElement).getPropertyValue(v).trim());
+
+function desenharMapa(el, { destacar = [], valores = null, rotuloValor = "", interativo = false, aoSelecionar } = {}) {
+  if (!MAPA) { el.innerHTML = `<div class="nota">mapa indisponível</div>`; return; }
+  const nums = valores ? Object.values(valores).filter(v => Number.isFinite(v)) : [];
+  const min = Math.min(...nums), max = Math.max(...nums);
+  const cor = (v) => {
+    if (max === min) return RAMPA[3];
+    const i = Math.min(4, Math.floor(((v - min) / (max - min)) * 5));
+    return RAMPA[i];
+  };
+  const set = new Set(destacar);
+
+  el.classList.toggle("interativo", interativo);
+  el.innerHTML = `<svg viewBox="${MAPA.viewBox}" role="img" aria-label="Mapa do Brasil">${MAPA.estados.map(e => {
+    const v = valores?.[e.uf];
+    let cls = "neutro", fill = "";
+    if (valores) {
+      if (Number.isFinite(v)) { cls = "com-valor" + (set.has(e.uf) ? " destaque-borda" : ""); fill = `style="fill:${cor(v)}"`; }
+      else cls = "sem-dado";
+    } else if (set.has(e.uf)) cls = "destaque";
+    return `<path d="${e.path}" data-uf="${e.uf}" class="${cls}" ${fill}><title>${esc(e.nome)}</title></path>`;
+  }).join("")}</svg>${valores && nums.length ? `
+    <div class="legenda"><span>${esc(fmtCompacto(min))}</span><span class="rampa"></span><span>${esc(fmtCompacto(max))}</span>
+      <span>${esc(rotuloValor || "")}</span><span class="sd"><i></i> sem dado</span></div>` : ""}`;
+
+  el.querySelectorAll("path").forEach(p => {
+    p.querySelector("title")?.remove(); // usamos o tooltip próprio
+    const uf = p.dataset.uf;
+    p.addEventListener("mousemove", (ev) => {
+      const v = valores?.[uf];
+      mostrarTip(`<b>${esc(INFO.ufs[uf]?.nome || uf)}</b>${valores ? `<br>${Number.isFinite(v) ? `${fmt(v, 1)} ${esc(rotuloValor || "")}` : "sem dado"}` : ""}`, ev);
+    });
+    p.addEventListener("mouseleave", esconderTip);
+    if (interativo) p.addEventListener("click", () => aoSelecionar?.(uf));
+  });
 }
 
-/* ---------- licitações ---------- */
-function renderLicitacoes(r) {
-  $("#lic-meta").textContent = `${r.items.length} resultado(s)${r.total > r.items.length ? ` de ${num(r.total)}` : ""} · fonte: PNCP`;
-  $("#lic-list").innerHTML = r.items.length ? r.items.map(it => `
-    <article class="item">
-      <div>${it.segmentos.map(s => `<span class="tag">${esc(s)}</span>`).join("")}</div>
-      <h3>${esc(it.titulo)}</h3>
-      <p>${esc(it.objeto.slice(0, 320))}${it.objeto.length > 320 ? "…" : ""}</p>
-      <div class="sub">
-        <span>🏛 ${esc(it.orgao)}</span>
-        <span>📍 ${esc([it.municipio, it.uf].filter(Boolean).join("/") || "—")}</span>
-        <span class="valor">${brl(it.valorEstimado)}</span>
-        <span>${esc(it.modalidade || "")}</span>
-        <span>Publicado ${dataBR(it.publicadoEm)}</span>
-        ${it.encerraEm ? `<span>Encerra ${dataBR(it.encerraEm)}</span>` : ""}
-        ${link(it.link, "ver edital ↗")}
-      </div>
-    </article>`).join("") : `<div class="empty">Nenhum edital encontrado.</div>`;
+/* ---------- foco ---------- */
+function definirFoco(novo) {
+  foco = novo;
+  store.set("foco", foco);
+  $("#sel-foco").value = foco.tipo === "brasil" ? "brasil" : `${foco.tipo}:${foco.valor}`;
+  desenharMapa($("#mapa-inicio"), { destacar: ufsDoFoco(), interativo: true, aoSelecionar: ufClicada });
+  document.querySelectorAll(".chip-regiao").forEach(c => c.classList.toggle("ativo", c.dataset.foco === $("#sel-foco").value));
 }
-$("#form-lic").addEventListener("submit", async (e) => {
-  e.preventDefault();
-  const p = new URLSearchParams([...new FormData(e.target)].filter(([, v]) => v));
-  $("#lic-list").innerHTML = `<div class="loading">consultando PNCP…</div>`;
-  try { renderLicitacoes(await api(`/licitacoes?${p}`)); } catch (err) { $("#lic-list").innerHTML = erroHtml(err); }
-});
-
-/* ---------- lodo ---------- */
-$("#form-lodo").addEventListener("submit", async (e) => {
-  e.preventDefault();
-  const body = Object.fromEntries([...new FormData(e.target)].map(([k, v]) => [k, k === "processo" ? v : Number(v)]));
-  const out = $("#lodo-out");
-  try {
-    const r = await api("/mercado-lodo", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) });
-    const economia = r.custoDestinacaoAnual.semDesaguamento - r.custoDestinacaoAnual.comDesaguamento;
-    out.innerHTML = `<h2>Dimensionamento <em>${esc(r.processo)}</em></h2>
-      <div class="big">
-        <div><b>${num(r.lodoSecoTdia, 2)}</b><span>t ST/dia (faixa ${num(r.faixaLodoSecoTdia[0], 2)}–${num(r.faixaLodoSecoTdia[1], 2)})</span></div>
-        <div><b>${num(r.vazaoCentrifugacaoM3h, 1)}</b><span>m³/h a centrifugar</span></div>
-        <div><b>${r.centrifugas.operando}+${r.centrifugas.reserva}</b><span>centrífugas (operação + reserva)</span></div>
-        <div><b>${num(r.tortaTdia, 1)}</b><span>t de torta/dia</span></div>
-        <div><b>${num(r.polimeroKgDia, 0)}</b><span>kg polímero/dia</span></div>
-        <div><b>${brl(economia)}</b><span>economia anual em destinação vs. lodo líquido</span></div>
-      </div>
-      <ul class="list">${r.premissas.map(p => `<li>${esc(p)}</li>`).join("")}</ul>
-      <p class="nota">${esc(r.aviso)}</p>`;
-  } catch (err) { out.innerHTML = erroHtml(err); }
-});
-
-/* ---------- geologia ---------- */
-function renderGeo(r) {
-  const g = r.nome ? r.geologia : r;
-  const cab = r.nome
-    ? `<div class="big"><div><b>${esc(r.nome)}/${esc(r.uf)}</b><span>IBGE ${esc(r.id)}</span></div>
-       <div><b>${num(r.populacao2022)}</b><span>habitantes (Censo 2022)</span></div>
-       <div><b>${num(g?.altitudeM)} m</b><span>altitude no centroide</span></div>
-       <div><b>${r.centroide ? `${r.centroide.lat.toFixed(3)}, ${r.centroide.lon.toFixed(3)}` : "—"}</b><span>centroide</span></div></div>`
-    : `<div class="big"><div><b>${num(g.altitudeM)} m</b><span>altitude</span></div><div><b>${g.ponto.lat}, ${g.ponto.lon}</b><span>ponto</span></div></div>`;
-  if (!g) return `<div class="card">${cab}${erroHtml("Sem centroide para análise geológica.")}</div>`;
-
-  const i = g.interpretacao;
-  return `<div class="card">${cab}
-    <h2>Unidades geológicas no ponto</h2>
-    ${g.unidades.length ? `<div class="table-wrap"><table><thead><tr><th>Unidade</th><th>Litologia</th><th>Idade</th></tr></thead><tbody>${
-      g.unidades.map(u => `<tr><td>${esc(u.nome || "—")}</td><td>${esc(u.litologia || "—")}</td><td>${esc(u.idade || "—")}</td></tr>`).join("")}</tbody></table></div>`
-      : `<div class="empty">Nenhuma unidade retornada para o ponto.</div>`}
-    </div>
-    ${i.classes.map(c => `<div class="card"><h2>${esc(c.titulo)}</h2><ul class="list">${c.implicacoes.map(x => `<li>${esc(x)}</li>`).join("")}</ul></div>`).join("")}
-    ${i.alertas.map(a => `<div class="card alerta">⚠ ${esc(a)}</div>`).join("")}
-    ${g.erros?.length ? erroHtml(g.erros.join(" · ")) : ""}
-    <p class="nota">${esc(i.aviso)}<br>Fontes: ${g.fontes.map(f => link(f.url, f.nome)).join(" · ")}</p>`;
+function ufClicada(uf) {
+  definirFoco(foco.tipo === "uf" && foco.valor === uf ? { tipo: "brasil" } : { tipo: "uf", valor: uf });
 }
-$("#form-geo").addEventListener("submit", async (e) => {
-  e.preventDefault();
-  const p = new URLSearchParams([...new FormData(e.target)].filter(([, v]) => v));
-  $("#geo-out").innerHTML = `<div class="loading">consultando IBGE, Macrostrat e modelo de elevação…</div>`;
-  try { $("#geo-out").innerHTML = renderGeo(await api(`/municipio?${p}`)); } catch (err) { $("#geo-out").innerHTML = erroHtml(err); }
-});
-$("#form-ponto").addEventListener("submit", async (e) => {
-  e.preventDefault();
-  const p = new URLSearchParams(new FormData(e.target));
-  $("#geo-out").innerHTML = `<div class="loading">analisando ponto…</div>`;
-  try { $("#geo-out").innerHTML = renderGeo(await api(`/geologia?${p}`)); } catch (err) { $("#geo-out").innerHTML = erroHtml(err); }
-});
-
-/* ---------- notícias & diários ---------- */
-async function carregarNoticias() {
-  $("#news").innerHTML = `<div class="loading">buscando notícias…</div>`;
-  try {
-    const r = await api(`/noticias?tema=${$("#sel-tema").value}`);
-    $("#news").innerHTML = r.items.length ? r.items.map(n => `<article class="item"><h3>${link(n.link, n.titulo)}</h3>
-      <div class="sub"><span>${esc(n.veiculo || "")}</span><span>${dataBR(n.publicadoEm)}</span></div></article>`).join("")
-      : `<div class="empty">Sem notícias no período.</div>`;
-  } catch (e) { $("#news").innerHTML = erroHtml(e); }
+function montarSeletores() {
+  const sel = $("#sel-foco");
+  sel.innerHTML = `<option value="brasil">Brasil</option>
+    <optgroup label="Regiões">${Object.entries(INFO.regioes).map(([k, v]) => `<option value="regiao:${k}">${esc(v)}</option>`).join("")}</optgroup>
+    <optgroup label="Estados">${Object.entries(INFO.ufs).sort((a, b) => a[1].nome.localeCompare(b[1].nome)).map(([k, v]) => `<option value="uf:${k}">${esc(v.nome)}</option>`).join("")}</optgroup>`;
+  sel.addEventListener("change", () => {
+    const [tipo, valor] = sel.value.split(":");
+    definirFoco(tipo === "brasil" ? { tipo: "brasil" } : { tipo, valor });
+  });
+  $("#chips-regiao").innerHTML = [["brasil", "Brasil"], ...Object.entries(INFO.regioes).map(([k, v]) => [`regiao:${k}`, v])]
+    .map(([k, v]) => `<button type="button" class="chip-regiao" data-foco="${k}">${esc(v)}</button>`).join("");
+  document.querySelectorAll(".chip-regiao").forEach(c => c.addEventListener("click", () => {
+    const [tipo, valor] = c.dataset.foco.split(":");
+    definirFoco(tipo === "brasil" ? { tipo: "brasil" } : { tipo, valor });
+  }));
 }
-async function carregarDiarios(termo = $("#form-diario").termo.value) {
-  $("#diarios").innerHTML = `<div class="loading">varrendo diários oficiais…</div>`;
-  try {
-    const r = await api(`/diarios?termo=${encodeURIComponent(termo)}&dias=60`);
-    $("#diarios").innerHTML = r.items.length ? r.items.map(d => `<article class="item">
-      <h3>${esc(d.municipio)}/${esc(d.uf)} · ${dataBR(d.data + "T12:00:00")}</h3>
-      ${d.trechos.map(t => `<p>…${esc(t)}…</p>`).join("")}
-      <div class="sub">${link(d.link, "diário completo ↗")}</div></article>`).join("")
-      : `<div class="empty">Nenhuma menção nos últimos 60 dias.</div>`;
-  } catch (e) { $("#diarios").innerHTML = erroHtml(e); }
+
+/* ---------- painéis ---------- */
+const ehUrl = (s) => /^https?:\/\/\S+$/i.test(String(s).trim());
+
+function renderPainel(p) {
+  const el = document.createElement("section");
+  el.className = "painel card-vidro";
+  const temMapa = Boolean(p.mapa);
+  const graficos = p.graficos || [];
+
+  el.innerHTML = `
+    <div class="painel-cab"><h3>${esc(p.titulo)}</h3></div>
+    ${p.kpis?.length ? `<div class="kpis">${p.kpis.map(k => `
+      <div class="kpi"><div class="v">${esc(k.valor)}</div><div class="r">${esc(k.rotulo)}</div>
+        ${k.detalhe || k.fonte ? `<div class="d">${esc([k.detalhe, k.fonte && `fonte: ${k.fonte}`].filter(Boolean).join(" · "))}</div>` : ""}</div>`).join("")}</div>` : ""}
+    ${temMapa || graficos.length ? `<div class="painel-grade ${temMapa && graficos.length ? "" : "so-um"}">
+      ${temMapa ? `<div class="bloco"><h4>${esc(p.mapa.valores ? `Mapa — ${p.mapa.rotuloValor || "valores por estado"}` : "Região analisada")}</h4><div class="mapa"></div></div>` : ""}
+      ${graficos.length ? `<div class="graficos" style="display:grid;gap:16px">${graficos.map((g, gi) => `
+        <div class="bloco"><h4>${esc(g.titulo)} ${g.unidade ? `<small>(${esc(g.unidade)})</small>` : ""}</h4>
+          <div class="barras" data-g="${gi}"></div></div>`).join("")}</div>` : ""}
+    </div>` : ""}
+    ${p.tabela ? `<div class="bloco">${p.tabela.titulo ? `<h4>${esc(p.tabela.titulo)}</h4>` : ""}
+      <div class="tabela-wrap"><table><thead><tr>${p.tabela.colunas.map(c => `<th>${esc(c)}</th>`).join("")}</tr></thead>
+      <tbody>${p.tabela.linhas.map(l => `<tr>${l.map(c => `<td>${ehUrl(c) ? `<a href="${esc(c)}" target="_blank" rel="noopener">abrir ↗</a>` : esc(c)}</td>`).join("")}</tr>`).join("")}</tbody></table></div></div>` : ""}
+    ${p.fontes?.length ? `<div class="fontes">Fontes: ${p.fontes.map(f => f.url ? `<a href="${esc(f.url)}" target="_blank" rel="noopener">${esc(f.nome)}</a>` : `<span class="f">${esc(f.nome)}</span>`).join("")}</div>` : ""}`;
+
+  if (temMapa) desenharMapa($(".mapa", el), p.mapa);
+
+  graficos.forEach((g, gi) => {
+    const max = Math.max(...g.itens.map(i => Math.abs(i.valor)), 1);
+    const box = el.querySelector(`.barras[data-g="${gi}"]`);
+    box.innerHTML = g.itens.map(i => `
+      <div class="barra"><span class="rot">${esc(i.rotulo)}</span>
+        <span class="trilha"><span class="preench" style="width:${(Math.abs(i.valor) / max) * 82}%"></span><span class="val">${esc(fmtCompacto(i.valor))}</span></span></div>`).join("");
+    box.querySelectorAll(".barra").forEach((b, i) => {
+      const it = g.itens[i];
+      b.addEventListener("mousemove", (ev) => mostrarTip(`<b>${esc(it.rotulo)}</b><br>${fmt(it.valor, 2)} ${esc(g.unidade || "")}`, ev));
+      b.addEventListener("mouseleave", esconderTip);
+    });
+  });
+  return el;
 }
-$("#sel-tema").addEventListener("change", carregarNoticias);
-$("#form-diario").addEventListener("submit", (e) => { e.preventDefault(); carregarDiarios(); });
 
-const LOADERS = {
-  radar: () => { carregarNoticias(); carregarDiarios(); }
-};
+/* ---------- conversa ---------- */
+const conversa = $("#conversa");
 
-/* ---------- assessor IA ---------- */
-let historico = store.get("historico", []);
-const chat = $("#chat");
-
-function addMsg(role, content, ferramentas) {
+function addUsuario(texto, f) {
   const div = document.createElement("div");
-  div.className = `msg ${role === "user" ? "user" : "ai"}`;
-  const md = window.marked && window.DOMPurify
-    ? DOMPurify.sanitize(marked.parse(content || ""))
-    : esc(content).replace(/\n/g, "<br>");
-  div.innerHTML = role === "user" ? esc(content).replace(/\n/g, "<br>") : md;
-  div.querySelectorAll("a").forEach(a => { a.target = "_blank"; a.rel = "noopener"; });
-  if (ferramentas?.length) {
-    div.insertAdjacentHTML("beforeend", `<div class="tools">${ferramentas.map(f => `<span class="tag ${f.ok ? "alta" : "media"}">⟲ ${esc(f.ferramenta)}</span>`).join("")}</div>`);
+  div.className = "msg-user";
+  div.innerHTML = `${f && f.tipo !== "brasil" ? `<span class="foco-tag">📍 ${esc(rotuloFoco(f))}</span>` : ""}${esc(texto).replace(/\n/g, "<br>")}`;
+  conversa.appendChild(div);
+}
+
+function addAssistente({ content, visuais = [], ferramentas = [], baseUsada = [] }, pensando = false) {
+  const div = document.createElement("div");
+  div.className = "msg-ai";
+  div.innerHTML = `<div class="ai-orb pequeno ${pensando ? "pensando" : ""}"><span></span></div><div class="corpo"></div>`;
+  const corpo = $(".corpo", div);
+  if (pensando) {
+    corpo.innerHTML = `<div class="texto-ai"><span class="pensando-txt">${esc(content)}</span></div>`;
+  } else {
+    visuais.forEach(v => corpo.appendChild(renderPainel(v)));
+    const t = document.createElement("div");
+    t.className = "texto-ai";
+    t.innerHTML = md(content);
+    t.querySelectorAll("a").forEach(a => { a.target = "_blank"; a.rel = "noopener"; });
+    corpo.appendChild(t);
+    if (ferramentas.length || baseUsada.length) {
+      corpo.insertAdjacentHTML("beforeend", `<div class="meta-ai">
+        ${baseUsada.map(b => `<span class="tag base">📚 ${esc(b)}</span>`).join("")}
+        ${ferramentas.filter(f => f.ferramenta !== "exibir_painel").map(f => `<span class="tag ${f.ok ? "ok" : "falha"}">⟲ ${esc(f.ferramenta.replace(/_/g, " "))}</span>`).join("")}</div>`);
+    }
   }
-  chat.appendChild(div);
-  chat.scrollTop = chat.scrollHeight;
+  conversa.appendChild(div);
   return div;
 }
-historico.forEach(m => addMsg(m.role, m.content));
-if (historico.length) $("#sugestoes").remove();
+
+function rolarFim() {
+  requestAnimationFrame(() => window.scrollTo({ top: document.body.scrollHeight, behavior: "smooth" }));
+}
+
+function atualizarModo() {
+  $("#boas-vindas").hidden = historico.length > 0;
+}
+
+function salvarHistorico() {
+  store.set("historico2", historico.slice(-20));
+}
 
 async function perguntar(texto) {
   const modo = $("#modo-estudo").checked ? "estudo" : "chat";
-  $("#sugestoes")?.remove();
-  addMsg("user", texto);
-  historico.push({ role: "user", content: texto });
-
-  const orb = $("#ai-orb");
-  orb.classList.add("thinking");
-  const pensando = addMsg("ai", modo === "estudo" ? "_Montando estudo de mercado: consultando PNCP, IBGE, diários, notícias e base curada…_" : "_Consultando fontes…_");
-  $("#form-chat button").disabled = true;
+  const focoAtual = { ...foco };
+  historico.push({ role: "user", content: texto, foco: focoAtual });
+  atualizarModo();
+  addUsuario(texto, focoAtual);
+  const pensando = addAssistente({
+    content: modo === "estudo" ? "Montando o estudo de mercado: consultando a base própria e as fontes públicas" : "Analisando: consultando a base própria e as fontes públicas"
+  }, true);
+  rolarFim();
+  $("#form-chat .enviar").disabled = true;
 
   try {
-    const r = await api("/assessor", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ historico, modo }) });
+    const r = await api("/assessor", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ historico: historico.map(({ role, content }) => ({ role, content })), modo, foco: focoAtual })
+    });
     pensando.remove();
-    addMsg("ai", r.resposta, r.ferramentas);
-    historico.push({ role: "assistant", content: r.resposta });
-    store.set("historico", historico.slice(-30));
+    const msg = { role: "assistant", content: r.resposta, visuais: r.visuais || [], ferramentas: r.ferramentas || [], baseUsada: r.baseUsada || [] };
+    historico.push(msg);
+    salvarHistorico();
+    const el = addAssistente(msg);
+    el.scrollIntoView({ behavior: "smooth", block: "start" });
   } catch (e) {
-    pensando.innerHTML = erroHtml(e);
+    $(".corpo", pensando).innerHTML = erroHtml(e);
+    $(".ai-orb", pensando).classList.remove("pensando");
     historico.pop();
   } finally {
-    orb.classList.remove("thinking");
-    $("#form-chat button").disabled = false;
+    $("#form-chat .enviar").disabled = false;
   }
 }
 
-$("#form-chat").addEventListener("submit", (e) => {
-  e.preventDefault();
-  const t = $("#input-chat").value.trim();
-  if (!t) return;
-  $("#input-chat").value = "";
-  perguntar(t);
-});
-$("#input-chat").addEventListener("keydown", (e) => {
+const entrada = $("#entrada");
+entrada.addEventListener("input", () => { entrada.style.height = "auto"; entrada.style.height = `${Math.min(entrada.scrollHeight, 160)}px`; });
+entrada.addEventListener("keydown", (e) => {
   if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); $("#form-chat").requestSubmit(); }
 });
+$("#form-chat").addEventListener("submit", (e) => {
+  e.preventDefault();
+  const t = entrada.value.trim();
+  if (!t || $("#form-chat .enviar").disabled) return;
+  entrada.value = "";
+  entrada.style.height = "auto";
+  perguntar(t);
+});
 document.querySelectorAll("#sugestoes button").forEach(b => b.addEventListener("click", () => {
-  if (/estudo de mercado/i.test(b.textContent)) $("#modo-estudo").checked = true;
-  perguntar(b.textContent);
+  if (b.dataset.estudo) $("#modo-estudo").checked = true;
+  perguntar(b.textContent.trim());
 }));
+$("#btn-nova").addEventListener("click", () => {
+  historico = [];
+  salvarHistorico();
+  conversa.innerHTML = "";
+  atualizarModo();
+  window.scrollTo({ top: 0 });
+});
+
+/* ---------- base de conhecimento ---------- */
+const gaveta = $("#gaveta"), veu = $("#veu");
+const abrirGaveta = (abrir) => {
+  gaveta.classList.toggle("aberta", abrir);
+  veu.classList.toggle("ativo", abrir);
+  gaveta.setAttribute("aria-hidden", String(!abrir));
+  if (abrir) carregarDocs();
+};
+$("#btn-base").addEventListener("click", () => abrirGaveta(true));
+$("#fechar-gaveta").addEventListener("click", () => abrirGaveta(false));
+veu.addEventListener("click", () => abrirGaveta(false));
+
+let exigeSenha = false;
+async function carregarDocs() {
+  const lista = $("#lista-docs");
+  lista.innerHTML = `<li class="nota">carregando…</li>`;
+  try {
+    const r = await api("/conhecimento");
+    exigeSenha = r.exigeSenha;
+    $("#campo-senha").hidden = !exigeSenha;
+    $("#aviso-persistencia").innerHTML = r.persistente ? "" :
+      `<div class="aviso">⚠ Armazenamento temporário: documentos enviados por aqui somem quando o servidor é atualizado. Para guardar de forma permanente, configure um Volume na Railway (variável DATA_DIR).</div>`;
+    lista.innerHTML = r.documentos.length ? r.documentos.map(d => `
+      <li><div><b>${esc(d.titulo)}</b><small>${d.origem === "sistema" ? "base do sistema" : `enviado em ${new Date(d.criadoEm).toLocaleDateString("pt-BR")}`} · ${d.trechos} trecho(s)</small></div>
+        ${d.origem === "envio" ? `<button type="button" data-id="${esc(d.id)}">remover</button>` : ""}</li>`).join("")
+      : `<li class="nota">Nenhum documento ainda.</li>`;
+    lista.querySelectorAll("button[data-id]").forEach(b => b.addEventListener("click", async () => {
+      if (!confirm("Remover este documento da base?")) return;
+      try {
+        await api(`/conhecimento/${encodeURIComponent(b.dataset.id)}`, { method: "DELETE", headers: { "x-admin-senha": $("#campo-senha").value } });
+        carregarDocs();
+      } catch (e) { alert(e.message); }
+    }));
+  } catch (e) { lista.innerHTML = `<li>${erroHtml(e)}</li>`; }
+}
+
+const lerBase64 = (arquivo) => new Promise((ok, falha) => {
+  const fr = new FileReader();
+  fr.onload = () => ok(String(fr.result).split(",")[1]);
+  fr.onerror = () => falha(new Error("Não foi possível ler o arquivo."));
+  fr.readAsDataURL(arquivo);
+});
+
+$("#form-doc").addEventListener("submit", async (e) => {
+  e.preventDefault();
+  const f = e.target, status = $("#doc-status"), btn = $("button", f);
+  const arquivo = f.arquivo.files[0];
+  if (!arquivo && f.texto.value.trim().length < 20) { status.textContent = "Cole um texto (mín. 20 caracteres) ou escolha um arquivo."; return; }
+  if (arquivo && arquivo.size > 15 * 1024 * 1024) { status.textContent = "Arquivo acima de 15 MB."; return; }
+  btn.disabled = true;
+  status.textContent = arquivo ? "Lendo o arquivo…" : "Salvando…";
+  try {
+    const body = { titulo: f.titulo.value.trim() };
+    if (arquivo) Object.assign(body, { arquivoNome: arquivo.name, arquivoBase64: await lerBase64(arquivo) });
+    else body.texto = f.texto.value;
+    const r = await api("/conhecimento", { method: "POST", headers: { "Content-Type": "application/json", "x-admin-senha": f.senha.value }, body: JSON.stringify(body) });
+    status.textContent = `✓ "${r.titulo}" adicionado (${r.trechos} trecho(s)).`;
+    f.titulo.value = ""; f.texto.value = ""; f.arquivo.value = "";
+    $(".arquivo span", f).textContent = "📎 ou escolha um arquivo (PDF, TXT, MD, CSV)";
+    carregarDocs();
+  } catch (err) {
+    status.textContent = `⚠ ${err.message}`;
+  } finally { btn.disabled = false; }
+});
+$("#form-doc").arquivo.addEventListener("change", (e) => {
+  const a = e.target.files[0];
+  $(".arquivo span").textContent = a ? `📎 ${a.name}` : "📎 ou escolha um arquivo (PDF, TXT, MD, CSV)";
+});
 
 /* ---------- início ---------- */
-carregarPainel().then(carregarSegmentos).catch(e => { $("#status").innerHTML = `<span class="dot"></span> ${esc(e.message)}`; });
-const abaSalva = store.get("aba", "painel");
-if (abaSalva !== "painel" && document.getElementById(`view-${abaSalva}`)) abrir(abaSalva);
+(async function iniciar() {
+  const [painel, mapa] = await Promise.allSettled([api("/painel"), fetch("brasil-mapa.json").then(r => r.json())]);
+  if (mapa.status === "fulfilled") MAPA = mapa.value;
+  const st = $("#status");
+  if (painel.status === "fulfilled") {
+    INFO = painel.value;
+    st.innerHTML = `<i class="dot"></i> ${INFO.assessorAtivo ? `IA online · ${INFO.provedorIA === "claude" ? "Claude" : "OpenAI"}` : "IA offline — configure a chave da OpenAI"}`;
+    if (INFO.assessorAtivo) st.classList.add("ok");
+  } else {
+    st.innerHTML = `<i class="dot"></i> ${esc(painel.reason.message)}`;
+  }
+  montarSeletores();
+  definirFoco(foco);
+  historico.forEach(m => m.role === "user" ? addUsuario(m.content, m.foco) : addAssistente(m));
+  atualizarModo();
+  if (historico.length) rolarFim();
+})();
