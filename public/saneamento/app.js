@@ -51,35 +51,120 @@ const ufsDoFoco = (f = foco) =>
 const rotuloFoco = (f = foco) =>
   f.tipo === "uf" ? INFO.ufs[f.valor]?.nome || f.valor : f.tipo === "regiao" ? INFO.regioes[f.valor] || f.valor : "Brasil";
 
-/* ---------- mapa ---------- */
-const RAMPA = ["--seq-1", "--seq-2", "--seq-3", "--seq-4", "--seq-5"].map(v => getComputedStyle(document.documentElement).getPropertyValue(v).trim());
+/* ---------- mapa (estilo "luzes à noite") ---------- */
+// Gerador pseudoaleatório com semente: as luzes ficam sempre no mesmo lugar para cada estado
+function aleatorio(semente) {
+  let h = 2166136261;
+  for (const c of semente) h = Math.imul(h ^ c.charCodeAt(0), 16777619);
+  return () => {
+    h += 0x6D2B79F5;
+    let t = h;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+let contadorMapas = 0;
+const NIVEIS = 5;
 
 function desenharMapa(el, { destacar = [], valores = null, rotuloValor = "", interativo = false, aoSelecionar } = {}) {
   if (!MAPA) { el.innerHTML = `<div class="nota">mapa indisponível</div>`; return; }
+  const id = `m${++contadorMapas}`;
   const nums = valores ? Object.values(valores).filter(v => Number.isFinite(v)) : [];
   const min = Math.min(...nums), max = Math.max(...nums);
-  const cor = (v) => {
-    if (max === min) return RAMPA[3];
-    const i = Math.min(4, Math.floor(((v - min) / (max - min)) * 5));
-    return RAMPA[i];
-  };
-  const set = new Set(destacar);
+  const nivel = (v) => max === min ? NIVEIS - 1 : Math.min(NIVEIS - 1, Math.floor(((v - min) / (max - min)) * NIVEIS));
+  const foco = new Set(destacar);
+  const emFoco = (uf) => valores ? Number.isFinite(valores[uf]) && (foco.size === 0 || foco.has(uf)) : foco.has(uf);
 
   el.classList.toggle("interativo", interativo);
-  el.innerHTML = `<svg viewBox="${MAPA.viewBox}" role="img" aria-label="Mapa do Brasil">${MAPA.estados.map(e => {
-    const v = valores?.[e.uf];
-    let cls = "neutro", fill = "";
-    if (valores) {
-      if (Number.isFinite(v)) { cls = "com-valor" + (set.has(e.uf) ? " destaque-borda" : ""); fill = `style="fill:${cor(v)}"`; }
-      else cls = "sem-dado";
-    } else if (set.has(e.uf)) cls = "destaque";
-    return `<path d="${e.path}" data-uf="${e.uf}" class="${cls}" ${fill}><title>${esc(e.nome)}</title></path>`;
-  }).join("")}</svg>${valores && nums.length ? `
-    <div class="legenda"><span>${esc(fmtCompacto(min))}</span><span class="rampa"></span><span>${esc(fmtCompacto(max))}</span>
-      <span>${esc(rotuloValor || "")}</span><span class="sd"><i></i> sem dado</span></div>` : ""}`;
+  el.innerHTML = `
+  <svg viewBox="${MAPA.viewBox}" role="img" aria-label="Mapa do Brasil" class="mapa-noite">
+    <defs>
+      <filter id="${id}-gv" x="-20%" y="-20%" width="140%" height="140%"><feGaussianBlur stdDeviation="1.6" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+      <filter id="${id}-gl" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="3.2" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
+      <pattern id="${id}-pt" width="5" height="5" patternUnits="userSpaceOnUse"><circle cx="1.2" cy="1.2" r=".55" fill="#3dffa8" opacity=".32"/></pattern>
+      <pattern id="${id}-po" width="4" height="4" patternUnits="userSpaceOnUse"><circle cx="1" cy="1" r=".6" fill="#ffb347" opacity=".45"/></pattern>
+      <radialGradient id="${id}-polo"><stop offset="0" stop-color="#fff7d6"/><stop offset=".35" stop-color="#ffc04d"/><stop offset="1" stop-color="#ff7a00" stop-opacity="0"/></radialGradient>
+    </defs>
+    <g class="estados">${MAPA.estados.map(e => {
+      const v = valores?.[e.uf];
+      const n = Number.isFinite(v) ? nivel(v) : -1;
+      const cls = emFoco(e.uf) ? `foco n${n}` : (valores && n < 0 ? "sem-dado" : "base");
+      return `<path id="${id}-${e.uf}" d="${e.path}" data-uf="${e.uf}" class="${cls}"/>`;
+    }).join("")}</g>
+    <g class="textura" pointer-events="none">${MAPA.estados.map(e =>
+      `<use href="#${id}-${e.uf}" fill="url(#${id}-${emFoco(e.uf) ? "po" : "pt"})"/>`).join("")}</g>
+    <g class="bordas-verdes" filter="url(#${id}-gv)" pointer-events="none">${MAPA.estados.filter(e => !emFoco(e.uf)).map(e => `<use href="#${id}-${e.uf}"/>`).join("")}</g>
+    <g class="bordas-laranja" filter="url(#${id}-gl)" pointer-events="none">${MAPA.estados.filter(e => emFoco(e.uf)).map(e => `<use href="#${id}-${e.uf}"/>`).join("")}</g>
+    <g class="rede" filter="url(#${id}-gv)" pointer-events="none"></g>
+    <g class="luzes" pointer-events="none"></g>
+    <g class="polos" pointer-events="none"></g>
+  </svg>
+  <div class="legenda-noite">${valores && nums.length ? `
+      <span>${esc(fmtCompacto(min))}</span><span class="rampa-laranja"></span><span>${esc(fmtCompacto(max))}</span>
+      <span>${esc(rotuloValor || "")}</span><span class="item"><i class="sd"></i>sem dado</span>`
+    : `<span class="item"><i class="laranja"></i>${foco.size ? "Região em foco" : "Brasil"}</span>
+       ${foco.size ? `<span class="item"><i class="verde"></i>Demais estados</span>` : ""}
+       <span class="item"><i class="polo"></i>Centro do estado</span><span class="item nota">luzes ilustrativas</span>`}</div>`;
 
-  el.querySelectorAll("path").forEach(p => {
-    p.querySelector("title")?.remove(); // usamos o tooltip próprio
+  const svg = $("svg", el);
+  const NS = "http://www.w3.org/2000/svg";
+  const gLuzes = $(".luzes", svg), gRede = $(".rede", svg), gPolos = $(".polos", svg);
+  const frag = { luzes: document.createDocumentFragment(), rede: document.createDocumentFragment(), polos: document.createDocumentFragment() };
+  const ponto = (x, y) => (window.DOMPoint ? new DOMPoint(x, y) : { x, y });
+  const destacado = foco.size > 0 || Boolean(valores);
+
+  // Luzes: pontos aleatórios dentro de cada estado; mais densas e alaranjadas na região em foco
+  MAPA.estados.forEach(e => {
+    const path = svg.getElementById(`${id}-${e.uf}`);
+    if (!path?.isPointInFill) return;
+    const bb = path.getBBox();
+    if (!bb.width || !bb.height) return;
+    const rnd = aleatorio(e.uf);
+    const quente = emFoco(e.uf) || !destacado;
+    const n = Math.round(Math.min(70, Math.max(10, Math.sqrt(bb.width * bb.height) * (quente ? 0.75 : 0.35))));
+    const pts = [];
+    for (let t = 0; t < n * 8 && pts.length < n; t++) {
+      const x = bb.x + rnd() * bb.width, y = bb.y + rnd() * bb.height;
+      try { if (path.isPointInFill(ponto(x, y))) pts.push([x, y]); } catch { return; }
+    }
+    // polo: ponto mais próximo do centro do estado
+    const cx = bb.x + bb.width / 2, cy = bb.y + bb.height / 2;
+    const polo = pts.reduce((m, p) => (Math.hypot(p[0] - cx, p[1] - cy) < Math.hypot(m[0] - cx, m[1] - cy) ? p : m), pts[0] || [cx, cy]);
+
+    pts.forEach(([x, y]) => {
+      const c = document.createElementNS(NS, "circle");
+      c.setAttribute("cx", x.toFixed(1)); c.setAttribute("cy", y.toFixed(1));
+      c.setAttribute("r", (0.5 + rnd() * (quente ? 1.3 : 0.8)).toFixed(2));
+      c.setAttribute("class", quente && destacado ? "luz-quente" : quente ? "luz-quente suave" : "luz-fria");
+      c.style.animationDelay = `${(rnd() * 4).toFixed(2)}s`;
+      frag.luzes.appendChild(c);
+    });
+
+    if (quente && destacado) {
+      // rede: linhas do polo para as luzes do estado
+      pts.forEach(([x, y], i) => {
+        if (i % 2) return;
+        const l = document.createElementNS(NS, "line");
+        l.setAttribute("x1", polo[0].toFixed(1)); l.setAttribute("y1", polo[1].toFixed(1));
+        l.setAttribute("x2", x.toFixed(1)); l.setAttribute("y2", y.toFixed(1));
+        l.style.animationDelay = `${(rnd() * 3).toFixed(2)}s`;
+        frag.rede.appendChild(l);
+      });
+    }
+    if (quente) {
+      const g = document.createElementNS(NS, "circle");
+      g.setAttribute("cx", polo[0].toFixed(1)); g.setAttribute("cy", polo[1].toFixed(1));
+      g.setAttribute("r", destacado ? "7" : "4.5");
+      g.setAttribute("fill", `url(#${id}-polo)`);
+      g.setAttribute("class", "polo");
+      frag.polos.appendChild(g);
+    }
+  });
+  gLuzes.appendChild(frag.luzes); gRede.appendChild(frag.rede); gPolos.appendChild(frag.polos);
+
+  svg.querySelectorAll(".estados path").forEach(p => {
     const uf = p.dataset.uf;
     p.addEventListener("mousemove", (ev) => {
       const v = valores?.[uf];
@@ -143,7 +228,8 @@ function renderPainel(p) {
       <tbody>${p.tabela.linhas.map(l => `<tr>${l.map(c => `<td>${ehUrl(c) ? `<a href="${esc(c)}" target="_blank" rel="noopener">abrir ↗</a>` : esc(c)}</td>`).join("")}</tr>`).join("")}</tbody></table></div></div>` : ""}
     ${p.fontes?.length ? `<div class="fontes">Fontes: ${p.fontes.map(f => f.url ? `<a href="${esc(f.url)}" target="_blank" rel="noopener">${esc(f.nome)}</a>` : `<span class="f">${esc(f.nome)}</span>`).join("")}</div>` : ""}`;
 
-  if (temMapa) desenharMapa($(".mapa", el), p.mapa);
+  // desenha depois que o painel entra na tela (as luzes precisam das medidas reais do SVG)
+  if (temMapa) requestAnimationFrame(() => desenharMapa($(".mapa", el), p.mapa));
 
   graficos.forEach((g, gi) => {
     const max = Math.max(...g.itens.map(i => Math.abs(i.valor)), 1);
