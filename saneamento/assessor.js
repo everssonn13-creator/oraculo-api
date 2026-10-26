@@ -21,6 +21,7 @@ import { sanitizarPainel, painelAutomatico } from "./visuais.js";
 export const provedorIA = () =>
   process.env.ANTHROPIC_API_KEY ? "claude" : process.env.OPENAI_API_KEY ? "openai" : null;
 const modeloPadrao = () => process.env.SANEAMENTO_MODEL || (provedorIA() === "claude" ? "claude-opus-5-5" : "gpt-4o-mini");
+export const modeloAtual = () => modeloPadrao();
 const MAX_ROUNDS = 6;
 const OPENAI_URL = `${process.env.OPENAI_BASE_URL || "https://api.openai.com/v1"}/chat/completions`;
 
@@ -316,8 +317,9 @@ async function chamarOpenAI(messages, maxTokens, { semFerramentas = false } = {}
       messages,
       tools: TOOLS.map(t => ({ type: "function", function: t })),
       tool_choice: semFerramentas ? "none" : "auto",
-      temperature: 0.3,
-      max_tokens: maxTokens
+      // Modelos de raciocínio (GPT-5, série o) não aceitam temperature nem max_tokens
+      ...(/^gpt-4/i.test(modeloPadrao()) ? { temperature: 0.3 } : {}),
+      max_completion_tokens: maxTokens
     })
   });
   const data = await res.json();
@@ -327,7 +329,7 @@ async function chamarOpenAI(messages, maxTokens, { semFerramentas = false } = {}
 
 async function consultarOpenAI(historico, system, modo, ctx) {
   const messages = [{ role: "system", content: system }, ...historico];
-  const maxTokens = modo === "estudo" ? 4000 : 2000;
+  const maxTokens = /^gpt-4/i.test(modeloPadrao()) ? (modo === "estudo" ? 4000 : 2000) : (modo === "estudo" ? 32000 : 16000);
 
   for (let rodada = 0; rodada < MAX_ROUNDS; rodada++) {
     const msg = await chamarOpenAI(messages, maxTokens);

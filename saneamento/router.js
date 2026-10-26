@@ -6,7 +6,7 @@ import { perfilMunicipio } from "./sources/ibge.js";
 import { geologiaNoPonto } from "./sources/geologia.js";
 import { INDICADORES, NOTA_INDICADORES, MARCO_LEGAL, CONCESSOES, PLAYERS, CENTRIFUGAS, FONTES_OFICIAIS, ATUALIZADO_EM } from "./knowledge/base.js";
 import { estimarMercadoLodo, PROCESSOS } from "./knowledge/mercadoLodo.js";
-import { consultarAssessor, provedorIA } from "./assessor.js";
+import { consultarAssessor, provedorIA, modeloAtual } from "./assessor.js";
 import { listarDocumentos, adicionarDocumento, removerDocumento, extrairTextoArquivo, persistente } from "./knowledge/biblioteca.js";
 import { REGIOES, UFS } from "./knowledge/regioes.js";
 
@@ -38,7 +38,8 @@ saneamentoRouter.get("/painel", handle(async () => ({
   regioes: REGIOES,
   ufs: Object.fromEntries(Object.entries(UFS).map(([k, v]) => [k, { nome: v.nome, regiao: v.regiao }])),
   assessorAtivo: Boolean(provedorIA()),
-  provedorIA: provedorIA()
+  provedorIA: provedorIA(),
+  modeloIA: provedorIA() ? modeloAtual() : null
 })));
 
 saneamentoRouter.get("/licitacoes", handle(async (req) => {
