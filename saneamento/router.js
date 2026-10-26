@@ -6,7 +6,7 @@ import { perfilMunicipio } from "./sources/ibge.js";
 import { geologiaNoPonto } from "./sources/geologia.js";
 import { INDICADORES, NOTA_INDICADORES, MARCO_LEGAL, CONCESSOES, PLAYERS, CENTRIFUGAS, FONTES_OFICIAIS, ATUALIZADO_EM } from "./knowledge/base.js";
 import { estimarMercadoLodo, PROCESSOS } from "./knowledge/mercadoLodo.js";
-import { consultarAssessor } from "./assessor.js";
+import { consultarAssessor, provedorIA } from "./assessor.js";
 
 // =====================================
 // API /api/saneamento — plataforma de inteligência de mercado
@@ -33,7 +33,8 @@ saneamentoRouter.get("/painel", handle(async () => ({
   centrifugas: CENTRIFUGAS,
   fontes: FONTES_OFICIAIS,
   processosLodo: Object.fromEntries(Object.entries(PROCESSOS).map(([k, v]) => [k, v.nome])),
-  assessorAtivo: Boolean(process.env.OPENAI_API_KEY)
+  assessorAtivo: Boolean(provedorIA()),
+  provedorIA: provedorIA()
 })));
 
 saneamentoRouter.get("/licitacoes", handle(async (req) => {

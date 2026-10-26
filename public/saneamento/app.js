@@ -42,7 +42,7 @@ async function carregarPainel() {
   PAINEL = await api("/painel");
   const st = $("#status");
   st.classList.add("ok");
-  st.innerHTML = `<span class="dot"></span> base curada ${dataBR(PAINEL.atualizadoEm + "T12:00:00")} · IA ${PAINEL.assessorAtivo ? "online" : "offline (configure OPENAI_API_KEY)"}`;
+  st.innerHTML = `<span class="dot"></span> base curada ${dataBR(PAINEL.atualizadoEm + "T12:00:00")} · IA ${PAINEL.assessorAtivo ? `online (${PAINEL.provedorIA === "claude" ? "Claude" : "OpenAI"})` : "offline (configure ANTHROPIC_API_KEY)"}`;
 
   $("#kpis").innerHTML = PAINEL.indicadores.map(i => `
     <div class="kpi ${i.id.startsWith("meta") ? "alvo" : ""}">

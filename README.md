@@ -44,15 +44,16 @@ e monta estudos de mercado completos (ETE/ETA, lodo e centrífugas, licitações
 
 | Variável | Uso |
 |---|---|
-| `OPENAI_API_KEY` | Necessária para o Assessor IA (os painéis funcionam sem ela) |
-| `SANEAMENTO_MODEL` | Modelo do assessor (padrão `gpt-4o-mini`; para estudos mais profundos use um modelo maior) |
+| `ANTHROPIC_API_KEY` | Assessor IA com Claude (tem prioridade; modelo padrão `claude-opus-5-5`) |
+| `OPENAI_API_KEY` | Alternativa: assessor com OpenAI (padrão `gpt-4o-mini`) quando não há chave da Anthropic |
+| `SANEAMENTO_MODEL` | Opcional — troca o modelo do provedor ativo |
 | `OPENAI_BASE_URL` | Opcional — endpoint compatível com a API OpenAI |
 | `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` | Oráculo Financeiro |
 
 ### Rodar
 
 ```bash
-npm install
+npm install    # Node 20+
 npm start      # http://localhost:8080/saneamento/
 npm test
 ```
