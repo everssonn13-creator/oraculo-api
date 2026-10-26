@@ -426,7 +426,7 @@ $("#form-doc").arquivo.addEventListener("change", (e) => {
   const st = $("#status");
   if (painel.status === "fulfilled") {
     INFO = painel.value;
-    st.innerHTML = `<i class="dot"></i> ${INFO.assessorAtivo ? `IA online · ${INFO.provedorIA === "claude" ? "Claude" : "OpenAI"}` : "IA offline — configure a chave da OpenAI"}`;
+    st.innerHTML = `<i class="dot"></i> ${INFO.assessorAtivo ? `IA online · ${esc(INFO.modeloIA || (INFO.provedorIA === "claude" ? "Claude" : "OpenAI"))}` : "IA offline — configure a chave da OpenAI"}`;
     if (INFO.assessorAtivo) st.classList.add("ok");
   } else {
     st.innerHTML = `<i class="dot"></i> ${esc(painel.reason.message)}`;
