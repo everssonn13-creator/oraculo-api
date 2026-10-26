@@ -52,3 +52,15 @@ export async function perfilMunicipio(nome, uf) {
     fonte: "IBGE (Localidades, Malhas e Censo 2022)"
   };
 }
+
+// População por UF (Censo 2022) — uma chamada para todas as UFs
+export async function populacaoUFs() {
+  const data = await fetchCached(`${IBGE}/v3/agregados/4709/periodos/2022/variaveis/93?localidades=N3[all]`, { ttlMs: 30 * DAY });
+  const series = data?.[0]?.resultados?.[0]?.series || [];
+  return Object.fromEntries(series.map(s => [String(s.localidade.id), Number(s.serie["2022"])]));
+}
+
+export async function totalMunicipiosUF(uf) {
+  const data = await fetchCached(`${IBGE}/v1/localidades/estados/${uf}/municipios`, { ttlMs: 30 * DAY });
+  return Array.isArray(data) ? data.length : null;
+}

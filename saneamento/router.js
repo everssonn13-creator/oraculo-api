@@ -7,6 +7,8 @@ import { geologiaNoPonto } from "./sources/geologia.js";
 import { INDICADORES, NOTA_INDICADORES, MARCO_LEGAL, CONCESSOES, PLAYERS, CENTRIFUGAS, FONTES_OFICIAIS, ATUALIZADO_EM } from "./knowledge/base.js";
 import { estimarMercadoLodo, PROCESSOS } from "./knowledge/mercadoLodo.js";
 import { consultarAssessor, provedorIA } from "./assessor.js";
+import { listarDocumentos, adicionarDocumento, removerDocumento, extrairTextoArquivo, persistente } from "./knowledge/biblioteca.js";
+import { REGIOES, UFS } from "./knowledge/regioes.js";
 
 // =====================================
 // API /api/saneamento — plataforma de inteligência de mercado
@@ -19,7 +21,7 @@ const handle = (fn) => async (req, res) => {
     res.json(await fn(req));
   } catch (err) {
     console.error("[saneamento]", err.message);
-    res.status(502).json({ erro: err.message });
+    res.status(err.status || 502).json({ erro: err.message });
   }
 };
 
@@ -33,6 +35,8 @@ saneamentoRouter.get("/painel", handle(async () => ({
   centrifugas: CENTRIFUGAS,
   fontes: FONTES_OFICIAIS,
   processosLodo: Object.fromEntries(Object.entries(PROCESSOS).map(([k, v]) => [k, v.nome])),
+  regioes: REGIOES,
+  ufs: Object.fromEntries(Object.entries(UFS).map(([k, v]) => [k, { nome: v.nome, regiao: v.regiao }])),
   assessorAtivo: Boolean(provedorIA()),
   provedorIA: provedorIA()
 })));
@@ -67,9 +71,41 @@ saneamentoRouter.get("/geologia", handle((req) => {
 saneamentoRouter.post("/mercado-lodo", handle(async (req) => estimarMercadoLodo(req.body || {})));
 
 saneamentoRouter.post("/assessor", handle(async (req) => {
-  const { historico, mensagem, modo } = req.body || {};
+  const { historico, mensagem, modo, foco } = req.body || {};
   const hist = Array.isArray(historico) ? historico : [];
   if (mensagem) hist.push({ role: "user", content: String(mensagem) });
   if (!hist.length) throw new Error("Envie 'mensagem' ou 'historico'.");
-  return consultarAssessor({ historico: hist, modo: modo === "estudo" ? "estudo" : "chat" });
+  const focoValido = foco && ["uf", "regiao"].includes(foco.tipo) && typeof foco.valor === "string"
+    ? { tipo: foco.tipo, valor: foco.valor.slice(0, 40) }
+    : { tipo: "brasil" };
+  return consultarAssessor({ historico: hist, modo: modo === "estudo" ? "estudo" : "chat", foco: focoValido });
+}));
+
+// ---------- Base de conhecimento própria ----------
+// Se SANEAMENTO_ADMIN_SENHA estiver definida, enviar/remover exige a senha no cabeçalho x-admin-senha
+const exigirSenha = (req) => {
+  const senha = process.env.SANEAMENTO_ADMIN_SENHA;
+  if (senha && req.get("x-admin-senha") !== senha) {
+    const err = new Error("Senha de administrador incorreta.");
+    err.status = 401;
+    throw err;
+  }
+};
+
+saneamentoRouter.get("/conhecimento", handle(async () => ({
+  documentos: await listarDocumentos(),
+  persistente: persistente(),
+  exigeSenha: Boolean(process.env.SANEAMENTO_ADMIN_SENHA)
+})));
+
+saneamentoRouter.post("/conhecimento", handle(async (req) => {
+  exigirSenha(req);
+  const { titulo, texto, arquivoNome, arquivoBase64 } = req.body || {};
+  const conteudo = arquivoBase64 ? await extrairTextoArquivo(String(arquivoNome || ""), String(arquivoBase64)) : texto;
+  return adicionarDocumento({ titulo: titulo || arquivoNome, texto: conteudo });
+}));
+
+saneamentoRouter.delete("/conhecimento/:id", handle(async (req) => {
+  exigirSenha(req);
+  return removerDocumento(req.params.id);
 }));

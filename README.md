@@ -10,6 +10,10 @@ Dois produtos no mesmo servidor Express:
 
 ## Oráculo do Saneamento
 
+Tela principal é uma conversa com o **Assessor IA**: as análises aparecem com mapa do Brasil
+(região/estado em foco), indicadores, gráficos e tabelas. A IA consulta primeiro a **base de conhecimento própria**
+(documentos em `saneamento/conhecimento/` + PDFs/textos enviados pelo app) e depois as fontes públicas ao vivo.
+
 App com visual futurista + **Assessor IA** que consulta fontes públicas antes de responder
 e monta estudos de mercado completos (ETE/ETA, lodo e centrífugas, licitações, concessões, geologia).
 
@@ -38,7 +42,8 @@ e monta estudos de mercado completos (ETE/ETA, lodo e centrífugas, licitações
 | GET | `/api/saneamento/municipio?nome=&uf=` | Perfil IBGE + triagem geológica no centroide |
 | GET | `/api/saneamento/geologia?lat=&lon=` | Triagem geológica/geotécnica em um ponto |
 | POST | `/api/saneamento/mercado-lodo` | Estimativa de lodo, centrífugas, polímero e custo de destinação |
-| POST | `/api/saneamento/assessor` | `{ mensagem, historico?, modo: "chat"\|"estudo" }` |
+| POST | `/api/saneamento/assessor` | `{ mensagem, historico?, modo: "chat"\|"estudo", foco?: { tipo: "uf"\|"regiao", valor } }` → `{ resposta, visuais, baseUsada, ferramentas }` |
+| GET/POST/DELETE | `/api/saneamento/conhecimento` | Lista, adiciona (texto ou arquivo PDF/TXT/MD/CSV em base64) e remove documentos da base própria |
 
 ### Variáveis de ambiente
 
@@ -47,6 +52,8 @@ e monta estudos de mercado completos (ETE/ETA, lodo e centrífugas, licitações
 | `ANTHROPIC_API_KEY` | Assessor IA com Claude (tem prioridade; modelo padrão `claude-opus-5-5`) |
 | `OPENAI_API_KEY` | Alternativa: assessor com OpenAI (padrão `gpt-4o-mini`) quando não há chave da Anthropic |
 | `SANEAMENTO_MODEL` | Opcional — troca o modelo do provedor ativo |
+| `DATA_DIR` | Pasta onde ficam os documentos enviados pelo app (na Railway, aponte para um Volume, ex.: `/data`) |
+| `SANEAMENTO_ADMIN_SENHA` | Opcional — exige senha para adicionar/remover documentos da base |
 | `OPENAI_BASE_URL` | Opcional — endpoint compatível com a API OpenAI |
 | `SUPABASE_URL`, `SUPABASE_SERVICE_ROLE_KEY` | Oráculo Financeiro |
 
@@ -57,3 +64,5 @@ npm install    # Node 20+
 npm start      # http://localhost:8080/saneamento/
 npm test
 ```
+
+Mapa dos estados: [svg-maps/brazil](https://github.com/VictorCazanave/svg-maps) por Victor Cazanave, licença CC BY 4.0 (`public/saneamento/brasil-mapa.json`).
