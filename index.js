@@ -2,6 +2,7 @@
    1️⃣ IMPORTAÇÕES E DEPENDÊNCIAS
 ====================================================== */
 import express from "express";
+import { fileURLToPath } from "node:url";
 import { createClient } from "@supabase/supabase-js";
 import { conversaLivreComIA } from "./chat/conversaLivre.js";
 import {
@@ -11,6 +12,7 @@ import {
   saveUserContext,
   loadUserContext
 } from "./chat/memory.store.js";
+import { saneamentoRouter } from "./saneamento/router.js";
 
 /* ======================================================
    2️⃣ SUPABASE
@@ -705,7 +707,14 @@ if (!hasValue && !hasExpenseVerb && !isReportRequest) {
   }
 });
 /* ======================================================
-   1️⃣6️⃣ START
+   1️⃣6️⃣ PLATAFORMA SANEAMENTO (API + APP)
+====================================================== */
+app.use("/api/saneamento", saneamentoRouter);
+app.use("/saneamento", express.static(fileURLToPath(new URL("./public/saneamento", import.meta.url))));
+app.get("/", (req, res) => res.redirect("/saneamento/"));
+
+/* ======================================================
+   1️⃣7️⃣ START
 ====================================================== */
 const PORT = process.env.PORT || 8080;
 app.listen(PORT, () => {

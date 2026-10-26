@@ -1,0 +1,186 @@
+<!doctype html>
+<html lang="pt-BR">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Oráculo do Saneamento</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/12.0.2/marked.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.1.6/purify.min.js"></script>
+</head>
+<body>
+  <div class="grid-bg" aria-hidden="true"></div>
+
+  <header class="topbar">
+    <div class="brand">
+      <span class="logo-orb" aria-hidden="true"></span>
+      <div>
+        <h1>ORÁCULO <span>DO SANEAMENTO</span></h1>
+        <small>Inteligência de mercado · ETE · ETA · Lodo · Licitações · Concessões · Geologia</small>
+      </div>
+    </div>
+    <div class="status" id="status"><span class="dot"></span> conectando às fontes públicas…</div>
+  </header>
+
+  <nav class="tabs" role="tablist">
+    <button class="tab active" data-view="painel">Painel</button>
+    <button class="tab" data-view="licitacoes">Licitações</button>
+    <button class="tab" data-view="concessoes">Concessões</button>
+    <button class="tab" data-view="lodo">Centrífugas &amp; Lodo</button>
+    <button class="tab" data-view="geologia">Geologia</button>
+    <button class="tab" data-view="radar">Notícias &amp; Diários</button>
+    <button class="tab tab-ai" data-view="assessor">◉ Assessor IA</button>
+  </nav>
+
+  <main class="layout">
+    <section class="views">
+
+      <!-- PAINEL -->
+      <div class="view active" id="view-painel">
+        <div class="kpis" id="kpis"></div>
+        <p class="nota" id="nota-indicadores"></p>
+        <div class="cols">
+          <div class="card">
+            <h2>Radar de editais por segmento <em>PNCP · ao vivo</em></h2>
+            <div id="segmentos" class="bars"><div class="loading">varrendo o PNCP…</div></div>
+          </div>
+          <div class="card">
+            <h2>Marco legal e regulação</h2>
+            <ul class="list" id="marco"></ul>
+          </div>
+        </div>
+        <div class="card">
+          <h2>Fontes oficiais monitoradas</h2>
+          <div class="chips" id="fontes"></div>
+        </div>
+      </div>
+
+      <!-- LICITAÇÕES -->
+      <div class="view" id="view-licitacoes">
+        <form class="toolbar" id="form-lic">
+          <input name="q" placeholder="Ex.: centrífuga decanter, ETE, adutora… (vazio = radar do setor)">
+          <select name="uf"><option value="">Brasil</option></select>
+          <select name="status">
+            <option value="recebendo_proposta">Recebendo propostas</option>
+            <option value="encerradas">Encerradas</option>
+            <option value="todos">Todas</option>
+          </select>
+          <button class="btn">Buscar</button>
+        </form>
+        <div id="lic-meta" class="meta"></div>
+        <div id="lic-list" class="feed"></div>
+      </div>
+
+      <!-- CONCESSÕES -->
+      <div class="view" id="view-concessoes">
+        <div class="card">
+          <h2>Leilões e desestatizações pós-Marco Legal <em>base curada · com fontes</em></h2>
+          <div class="table-wrap"><table id="tab-concessoes"></table></div>
+          <p class="nota">"Confiança média" = valor a confirmar em fonte primária. Para eventos novos, consulte a aba Notícias ou pergunte ao Assessor.</p>
+        </div>
+        <div class="card">
+          <h2>Players</h2>
+          <div class="players" id="players"></div>
+        </div>
+      </div>
+
+      <!-- LODO -->
+      <div class="view" id="view-lodo">
+        <div class="cols">
+          <div class="card">
+            <h2>Estimador de demanda de centrífugas</h2>
+            <form id="form-lodo" class="form-grid">
+              <label>População atendida (hab)<input name="populacao" type="number" value="500000" min="1" required></label>
+              <label>Processo da ETE<select name="processo" id="sel-processo"></select></label>
+              <label>Cobertura de tratamento (%)<input name="coberturaTratamento" type="number" value="100" min="0" max="100"></label>
+              <label>Horas de operação/dia<input name="horasOperacao" type="number" value="16" min="1" max="24"></label>
+              <label>Capacidade por máquina (m³/h)<input name="capacidadeMaquinaM3h" type="number" value="15" min="1"></label>
+              <label>Transporte + destinação (R$/t)<input name="custoDestinacaoPorT" type="number" value="150" min="0"></label>
+              <button class="btn">Calcular</button>
+            </form>
+          </div>
+          <div class="card" id="lodo-out"><div class="empty">Preencha e calcule para ver o dimensionamento.</div></div>
+        </div>
+        <div class="cols">
+          <div class="card"><h2>Desempenho típico</h2><div class="table-wrap"><table id="tab-desempenho"></table></div><p class="nota" id="nota-desempenho"></p></div>
+          <div class="card"><h2>Modelos de negócio</h2><ul class="list" id="modelos"></ul></div>
+        </div>
+        <div class="cols">
+          <div class="card"><h2>Vetores de demanda</h2><ul class="list" id="vetores"></ul></div>
+          <div class="card"><h2>Fabricantes &amp; tecnologias concorrentes</h2><div class="chips" id="fabricantes"></div><div class="chips dim" id="concorrentes"></div></div>
+        </div>
+      </div>
+
+      <!-- GEOLOGIA -->
+      <div class="view" id="view-geologia">
+        <form class="toolbar" id="form-geo">
+          <input name="nome" placeholder="Município (ex.: Campinas)" required>
+          <select name="uf"><option value="">UF</option></select>
+          <button class="btn">Analisar</button>
+        </form>
+        <form class="toolbar" id="form-ponto">
+          <input name="lat" placeholder="Latitude (ex.: -22.90)" inputmode="decimal">
+          <input name="lon" placeholder="Longitude (ex.: -47.06)" inputmode="decimal">
+          <button class="btn ghost">Analisar ponto exato</button>
+        </form>
+        <div id="geo-out"><div class="empty">Triagem geológica e geotécnica para implantação de ETE/ETA — unidade geológica, altitude e implicações.</div></div>
+      </div>
+
+      <!-- RADAR -->
+      <div class="view" id="view-radar">
+        <div class="toolbar">
+          <select id="sel-tema">
+            <option value="geral">Saneamento — geral</option>
+            <option value="leiloes">Leilões e concessões</option>
+            <option value="regulacao">Regulação / ANA</option>
+            <option value="lodo">Lodo e centrífugas</option>
+            <option value="empresas">Empresas do setor</option>
+          </select>
+          <form id="form-diario" class="inline">
+            <input name="termo" value="centrífuga lodo" placeholder="Termo nos diários oficiais">
+            <button class="btn ghost">Buscar diários</button>
+          </form>
+        </div>
+        <div class="cols">
+          <div class="card"><h2>Notícias <em>últimos 30 dias</em></h2><div id="news" class="feed"></div></div>
+          <div class="card"><h2>Diários oficiais municipais <em>Querido Diário</em></h2><div id="diarios" class="feed"></div></div>
+        </div>
+      </div>
+
+      <!-- ASSESSOR (mobile) -->
+      <div class="view" id="view-assessor"></div>
+    </section>
+
+    <!-- ASSESSOR IA -->
+    <aside class="assessor" id="assessor">
+      <div class="assessor-head">
+        <div class="ai-orb" id="ai-orb"><span></span></div>
+        <div>
+          <h2>Assessor IA</h2>
+          <small>Consulta PNCP, IBGE, diários, notícias e geologia antes de responder</small>
+        </div>
+      </div>
+      <div class="chat" id="chat">
+        <div class="msg ai">
+          <p>Olá! Sou seu assessor de mercado do saneamento. Posso montar <strong>estudos de mercado completos</strong>, mapear <strong>licitações abertas</strong>, analisar <strong>concessões</strong>, dimensionar demanda de <strong>centrífugas</strong> e fazer triagem <strong>geológica</strong> para ETE/ETA.</p>
+        </div>
+        <div class="sugestoes" id="sugestoes">
+          <button>Quais licitações de centrífugas para lodo estão abertas agora?</button>
+          <button>Estudo de mercado de desaguamento de lodo no Nordeste</button>
+          <button>Geologia para implantar uma ETE em Sete Lagoas/MG</button>
+          <button>Resumo dos leilões de saneamento desde o Marco Legal</button>
+        </div>
+      </div>
+      <form class="composer" id="form-chat">
+        <label class="modo"><input type="checkbox" id="modo-estudo"> <span>Estudo completo</span></label>
+        <textarea id="input-chat" rows="2" placeholder="Pergunte ao assessor…" required></textarea>
+        <button class="btn send" aria-label="Enviar">➤</button>
+      </form>
+    </aside>
+  </main>
+
+  <script src="app.js"></script>
+</body>
+</html>
