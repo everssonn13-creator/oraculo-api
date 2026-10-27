@@ -5,13 +5,13 @@
 // Revise este arquivo quando o SINISA publicar novo ano-base.
 // =====================================
 
-export const ATUALIZADO_EM = "2026-10-26";
+export const ATUALIZADO_EM = "2026-10-27";
 
 export const INDICADORES = [
-  { id: "agua", nome: "População atendida com rede de água", valor: 84.9, unidade: "%", referencia: "SNIS 2022 (ano-base 2022)", fonte: "https://www.gov.br/cidades/pt-br/acesso-a-informacao/acoes-e-programas/saneamento/snis" },
-  { id: "coleta", nome: "População atendida com coleta de esgoto", valor: 56.0, unidade: "%", referencia: "SNIS 2022 (ano-base 2022)", fonte: "https://www.gov.br/cidades/pt-br/acesso-a-informacao/acoes-e-programas/saneamento/snis" },
-  { id: "tratamento", nome: "Esgoto gerado que é tratado", valor: 52.2, unidade: "%", referencia: "SNIS 2022 (ano-base 2022)", fonte: "https://www.gov.br/cidades/pt-br/acesso-a-informacao/acoes-e-programas/saneamento/snis" },
-  { id: "perdas", nome: "Perdas de água na distribuição", valor: 39.53, unidade: "%", referencia: "Estudo Trata Brasil / GO Associados 2026 com base no SINISA 2024", fonte: "https://agenciainfra.com/blog/brasil-desperdica-quase-40-da-agua-trata-diz-estudo/" },
+  { id: "agua", nome: "Atendimento total de água", valor: 84.1, unidade: "%", referencia: "SINISA 2024 (ano-base 2024), citado no Ranking do Saneamento 2026 do Instituto Trata Brasil", fonte: "https://tratabrasil.org.br/ranking-do-saneamento-2026/" },
+  { id: "coleta", nome: "Atendimento com coleta de esgoto", valor: 56.7, unidade: "%", referencia: "SINISA 2024 (ano-base 2024), citado no Ranking do Saneamento 2026 do Instituto Trata Brasil", fonte: "https://tratabrasil.org.br/ranking-do-saneamento-2026/" },
+  { id: "tratamento", nome: "Esgoto gerado que é tratado", valor: 51.8, unidade: "%", referencia: "SINISA 2024 (ano-base 2024), citado no Ranking do Saneamento 2026 do Instituto Trata Brasil", fonte: "https://tratabrasil.org.br/ranking-do-saneamento-2026/" },
+  { id: "perdas", nome: "Perdas de água na distribuição", valor: 39.5, unidade: "%", referencia: "SINISA 2024 (ano-base 2024), citado no Ranking do Saneamento 2026 do Instituto Trata Brasil", fonte: "https://tratabrasil.org.br/ranking-do-saneamento-2026/" },
   { id: "meta_agua", nome: "Meta legal de atendimento de água até 31/12/2033", valor: 99, unidade: "%", referencia: "Lei 14.026/2020 (art. 11-B da Lei 11.445/2007)", fonte: "https://www.planalto.gov.br/ccivil_03/_ato2019-2022/2020/lei/l14026.htm" },
   { id: "meta_esgoto", nome: "Meta legal de coleta e tratamento de esgoto até 31/12/2033", valor: 90, unidade: "%", referencia: "Lei 14.026/2020 (art. 11-B da Lei 11.445/2007)", fonte: "https://www.planalto.gov.br/ccivil_03/_ato2019-2022/2020/lei/l14026.htm" },
   { id: "meta_perdas", nome: "Teto de perdas na distribuição previsto para 2025", valor: 35, unidade: "%", referencia: "Portaria MCid 788/2024 (citada no estudo Trata Brasil 2026: só 12 de 5.569 municípios cumprem)", fonte: "https://brasil61.com/n/brasil-perde-quase-40-da-agua-tratada-antes-de-ela-chegar-aos-consumidores-bras2616481" }
@@ -25,9 +25,10 @@ export const MARCO_LEGAL = [
   { norma: "Lei 14.026/2020 — Novo Marco Legal", tema: "Metas 99%/90% até 2033, fim dos contratos de programa sem licitação, regionalização, ANA como editora de normas de referência", url: "https://www.planalto.gov.br/ccivil_03/_ato2019-2022/2020/lei/l14026.htm" },
   { norma: "Decreto 11.598/2023", tema: "Metodologia de comprovação da capacidade econômico-financeira dos prestadores", url: "https://www.planalto.gov.br/ccivil_03/_ato2023-2026/2023/decreto/D11598.htm" },
   { norma: "Decreto 11.599/2023", tema: "Prestação regionalizada, apoio técnico/financeiro da União e alocação de recursos", url: "https://www.planalto.gov.br/ccivil_03/_ato2023-2026/2023/decreto/D11599.htm" },
+  { norma: "Decreto 12.805/2025", tema: "Prorroga para 31/12/2027 o prazo do art. 15 do Marco Legal para acesso a recursos federais (fonte: Tabuleiro do Saneamento 2026, IAS)", url: "https://tabuleiro.aguaesaneamento.org.br" },
   { norma: "Lei 14.133/2021", tema: "Nova Lei de Licitações — editais publicados obrigatoriamente no PNCP", url: "https://www.planalto.gov.br/ccivil_03/_ato2019-2022/2021/lei/l14133.htm" },
   { norma: "Lei 8.987/1995 e Lei 11.079/2004", tema: "Concessões comuns e Parcerias Público-Privadas", url: "https://www.planalto.gov.br/ccivil_03/leis/l8987cons.htm" },
-  { norma: "Normas de Referência da ANA", tema: "Regulação nacional de referência (tarifas, indenizações, metas, contabilidade regulatória)", url: "https://www.gov.br/ana/pt-br/assuntos/saneamento-basico/normas-de-referencia" },
+  { norma: "Normas de Referência da ANA (NR 1 a NR 16)", tema: "Regulação nacional de referência: tarifas, indenização (NR 3), matriz de riscos (NR 5), metas de universalização (NR 8), indicadores (NR 9), perdas (NR 15), contabilidade regulatória (NR 16, ago/2026)", url: "https://www.gov.br/ana/pt-br/assuntos/saneamento-basico/normas-de-referencia" },
   { norma: "Resolução CONAMA 430/2011", tema: "Padrões de lançamento de efluentes (complementa a 357/2005)", url: "https://conama.mma.gov.br" },
   { norma: "Resolução CONAMA 357/2005", tema: "Classificação dos corpos d'água e padrões de qualidade", url: "https://conama.mma.gov.br" },
   { norma: "Resolução CONAMA 498/2020", tema: "Uso agrícola de lodo de esgoto/biossólido (substituiu a 375/2006)", url: "https://conama.mma.gov.br" },

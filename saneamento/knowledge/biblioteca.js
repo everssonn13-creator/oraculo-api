@@ -21,7 +21,9 @@ const STOP = new Set(("de da do das dos em no na nos nas um uma uns umas para po
 
 const tokens = (s = "") =>
   s.toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "")
-    .split(/[^a-z0-9]+/).filter(t => t.length >= 3 && !STOP.has(t));
+    .split(/[^a-z0-9]+/)
+    // números soltos (valores de tabelas) diluem a busca; anos de 4 dígitos continuam pesquisáveis
+    .filter(t => t.length >= 3 && !STOP.has(t) && (!/^\d+$/.test(t) || t.length === 4));
 
 export function dividirEmTrechos(texto, tamanho = 1200, sobreposicao = 200) {
   const limpo = texto.replace(/\r/g, "").replace(/\n{3,}/g, "\n\n").trim();
@@ -108,6 +110,8 @@ export async function buscarNaBiblioteca(consulta, limite = 5) {
     })
     .filter(r => r.score > 0)
     .sort((a, b) => b.score - a.score)
+    // no máximo 2 trechos por documento, para trazer fontes diferentes
+    .filter((r, _, todos) => todos.filter(o => o.docId === r.docId && o.score >= r.score).length <= 2)
     .slice(0, limite)
     .map(r => ({ ...r, score: Math.round(r.score * 100) / 100 }));
 }
