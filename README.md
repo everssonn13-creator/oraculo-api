@@ -5,10 +5,10 @@ Dois produtos no mesmo servidor Express:
 | Rota | Produto |
 |---|---|
 | `POST /oraculo` | Oráculo Financeiro (registro de despesas — já existente) |
-| `/saneamento/` | **Oráculo do Saneamento** — app de inteligência de mercado do saneamento básico no Brasil |
+| `/saneamento/` | **Centris IA** — inteligência comercial do saneamento (configurado para a Pieralisi do Brasil) |
 | `/api/saneamento/*` | API da plataforma de saneamento |
 
-## Oráculo do Saneamento
+## Centris IA
 
 Tela principal é uma conversa com o **Assessor IA**: as análises aparecem com mapa do Brasil
 (região/estado em foco), indicadores, gráficos e tabelas. A IA consulta primeiro a **base de conhecimento própria**
@@ -35,6 +35,7 @@ e monta estudos de mercado completos (ETE/ETA, lodo e centrífugas, licitações
 
 | Método | Rota | Descrição |
 |---|---|---|
+| GET | `/api/saneamento/radar?local=&produto=` | Radar de compras pré-carregado (PNCP, diários oficiais, notícias, obras em andamento) com confiança e fonte |
 | GET | `/api/saneamento/painel` | KPIs, marco legal, concessões, players, centrífugas |
 | GET | `/api/saneamento/licitacoes?q=&uf=&status=` | Busca no PNCP (sem `q` = radar do setor por segmento) |
 | GET | `/api/saneamento/diarios?termo=&dias=` | Diários oficiais municipais |
@@ -52,6 +53,7 @@ e monta estudos de mercado completos (ETE/ETA, lodo e centrífugas, licitações
 | `ANTHROPIC_API_KEY` | Assessor IA com Claude (tem prioridade; modelo padrão `claude-opus-5-5`) |
 | `OPENAI_API_KEY` | Alternativa: assessor com OpenAI (padrão `gpt-4o-mini`) quando não há chave da Anthropic |
 | `SANEAMENTO_MODEL` | Opcional — troca o modelo do provedor ativo |
+| `CENTRIS_EMPRESA` | Empresa cliente das análises (padrão `Pieralisi do Brasil`); perfil em `saneamento/conhecimento/perfil-empresa-cliente.md` |
 | `DATA_DIR` | Pasta onde ficam os documentos enviados pelo app (na Railway, aponte para um Volume, ex.: `/data`) |
 | `SANEAMENTO_ADMIN_SENHA` | Opcional — exige senha para adicionar/remover documentos da base |
 | `OPENAI_BASE_URL` | Opcional — endpoint compatível com a API OpenAI |

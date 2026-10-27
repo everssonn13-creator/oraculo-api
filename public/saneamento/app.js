@@ -1,5 +1,5 @@
 // =====================================
-// Oráculo do Saneamento — símbolo da IA + análises que se moldam na tela
+// Centris IA — inteligência comercial do saneamento: símbolo da IA + análises que se moldam na tela
 // =====================================
 const API = "/api/saneamento";
 const NS = "http://www.w3.org/2000/svg";
@@ -68,7 +68,7 @@ function aleatorio(semente) {
 }
 
 function desenharCerebro(el, { interativo = false, destacar = [], aoSelecionar, detalhado = true } = {}) {
-  if (!MAPA) return;
+  if (!MAPA || !el) return; // o elemento pode ter saído da tela antes do desenho (respostas muito rápidas)
   const id = novoId();
   const set = new Set(destacar);
   el.classList.toggle("interativo", interativo);
@@ -238,7 +238,7 @@ function renderVisual(p) {
   }
 
   if (p.estrategias?.length) {
-    frag.appendChild(tituloSecao("Estratégias para entrar no mercado"));
+    frag.appendChild(tituloSecao("Ações comerciais recomendadas"));
     const box = document.createElement("div");
     box.className = "estrategias";
     box.innerHTML = p.estrategias.map((e, i) => `<div class="estrategia"><span class="num">${i + 1}</span><div>
@@ -315,8 +315,9 @@ function renderAnalise() {
   }
 
   const r = a.resultado;
+  if (a.tipo === "radar") { renderRadar(a, r.radar); return; }
   (r.visuais || []).forEach(v => palco.appendChild(renderVisual(v)));
-  if ((r.visuais || []).some(v => v.insights || v.estrategias)) palco.appendChild(tituloSecao("Leitura do assessor"));
+  if ((r.visuais || []).some(v => v.insights || v.estrategias)) palco.appendChild(tituloSecao("Leitura executiva"));
   const texto = document.createElement("div");
   texto.className = "cartao texto";
   texto.innerHTML = md(r.resposta);
@@ -337,7 +338,8 @@ function blocoProximas(a, opcoes) {
   const estudo = a.modo !== "estudo" && a.resultado ? `<button type="button" class="estudo" data-estudo="1">Gerar estudo completo sobre isto</button>` : "";
   div.innerHTML = `<h3>Próximas análises</h3><div class="opcoes">${opcoes.map(o => `<button type="button">${esc(o)}</button>`).join("")}${estudo}</div>`;
   div.querySelectorAll("button").forEach(b => b.addEventListener("click", () => {
-    if (b.dataset.estudo) pedir(`Estudo completo: ${a.pergunta}`, "estudo");
+    if (a.tipo === "radar" && /^Tentar novamente/.test(b.textContent)) pedirRadar();
+    else if (b.dataset.estudo) pedir(`Estudo completo: ${a.pergunta}`, "estudo");
     else pedir(b.textContent.replace(/^Tentar novamente: /, ""));
   }));
   return div;
@@ -348,7 +350,102 @@ let ocupado = false;
 
 function contexto() {
   // conversa enviada à IA: perguntas e respostas anteriores desta sessão
-  return analises.flatMap(a => a.resultado ? [{ role: "user", content: a.pergunta }, { role: "assistant", content: a.resultado.resposta }] : []);
+  return analises.flatMap(a => a.resultado?.resposta ? [{ role: "user", content: a.pergunta }, { role: "assistant", content: a.resultado.resposta }] : []);
+}
+
+/* ---------- radar de compras (sem IA: dados pré-carregados no servidor) ---------- */
+const CONF = { alta: "Alta", media: "Média", baixa: "Baixa" };
+const brlCompacto = (v) => v ? `R$ ${fmtCompacto(v)}` : "—";
+
+async function pedirRadar() {
+  if (ocupado) return;
+  const a = { pergunta: "Radar de compras", tipo: "radar", foco: { ...foco }, etapa: "Lendo o radar de compras" };
+  analises.push(a);
+  atual = analises.length - 1;
+  renderAnalise();
+  window.scrollTo({ top: 0, behavior: "smooth" });
+  try {
+    const local = foco.tipo === "brasil" ? "" : ufsDoFoco(foco).join(",");
+    a.resultado = { radar: await api(`/radar${local ? `?local=${encodeURIComponent(local)}` : ""}`) };
+  } catch (e) {
+    a.erro = e.message;
+  }
+  salvar();
+  if (analises[atual] === a) renderAnalise();
+}
+
+function renderRadar(a, r) {
+  const nomeProd = (id) => r.produtos?.[id] || id;
+  const kpis = [
+    { valor: fmt(r.total), rotulo: "Sinais de compra", detalhe: `${r.empresa} · produtos da empresa` },
+    { valor: fmt(r.porConfianca.alta), rotulo: "Confiança alta", detalhe: "edital ou licitação publicada" },
+    { valor: fmt(r.editaisAbertos), rotulo: "Editais abertos", fonte: "PNCP" },
+    { valor: brlCompacto(r.valorEstimado), rotulo: "Valor estimado", detalhe: "soma dos editais com valor" },
+    { valor: new Date(r.atualizadoEm).toLocaleTimeString("pt-BR", { hour: "2-digit", minute: "2-digit" }), rotulo: `Atualizado ${new Date(r.atualizadoEm).toLocaleDateString("pt-BR", { day: "2-digit", month: "2-digit" })}`, detalhe: "radar renova a cada 6 h" }
+  ];
+  const visual = {
+    kpis,
+    mapa: { destacar: ufsDoFoco(a.foco), valores: Object.keys(r.porUF).length ? r.porUF : null, rotuloValor: "sinais" },
+    graficos: [
+      Object.keys(r.porProduto).length && { titulo: "Sinais por linha de produto", unidade: "sinais", tipo: "barras", itens: Object.entries(r.porProduto).sort((x, y) => y[1] - x[1]).map(([k, v]) => ({ rotulo: nomeProd(k), valor: v })) },
+      r.total && { titulo: "Confiança dos sinais", unidade: "sinais", tipo: "participacao", itens: Object.entries(r.porConfianca).map(([k, v]) => ({ rotulo: CONF[k], valor: v })) }
+    ].filter(Boolean)
+  };
+  palco.appendChild(renderVisual(visual));
+
+  if (!r.total) {
+    palco.insertAdjacentHTML("beforeend", `<div class="cartao texto">Nenhum sinal encontrado para este foco agora.${r.erros?.length ? ` Algumas fontes não responderam (${esc(r.erros.slice(0, 2).join(" · "))}); o radar tenta de novo automaticamente.` : ""}</div>`);
+  } else {
+    palco.appendChild(tituloSecao("Sinais de compra — mais relevantes primeiro"));
+    const filtros = document.createElement("div");
+    filtros.className = "filtros";
+    const prods = Object.keys(r.porProduto);
+    filtros.innerHTML = [["", "Todos"], ...prods.map(p => [p, nomeProd(p)])].map(([k, v], i) => `<button type="button" data-p="${esc(k)}" class="${i === 0 ? "ativo" : ""}">${esc(v)}</button>`).join("");
+    const lista = document.createElement("div");
+    lista.className = "sinais";
+    let mostrar = 10;
+    const desenhar = (prod) => {
+      const filtrados = r.sinais.filter(s => !prod || s.produtos.includes(prod));
+      lista.innerHTML = filtrados.slice(0, mostrar).map((s, i) => `
+        <article class="sinal">
+          <div class="sinal-topo"><span class="conf ${esc(s.confianca)}">${CONF[s.confianca]}</span><span class="tipo">${esc(s.tipo)}</span>
+            <span class="quando">${s.data ? new Date(s.data.length === 10 ? `${s.data}T12:00:00` : s.data).toLocaleDateString("pt-BR") : ""}</span></div>
+          <h4>${esc(s.orgao || s.municipio || "Órgão não identificado")}${s.municipio || s.uf ? ` <small>${esc([s.municipio, s.uf].filter(Boolean).join("/"))}</small>` : ""}</h4>
+          <p>${esc(s.resumo)}</p>
+          <div class="sinal-rodape">
+            ${s.produtos.map(p => `<span class="prod">${esc(nomeProd(p))}</span>`).join("")}
+            ${s.valor ? `<span class="valor">${esc(brlCompacto(s.valor))}</span>` : ""}
+            ${s.prazo ? `<span class="prazo">até ${new Date(s.prazo).toLocaleDateString("pt-BR")}</span>` : ""}
+            <span class="fonte">${esc(s.fonte)}</span>
+            ${s.link ? `<a href="${esc(s.link)}" target="_blank" rel="noopener">ver fonte ↗</a>` : ""}
+            <button type="button" data-i="${r.sinais.indexOf(s)}">Analisar conta</button>
+          </div>
+        </article>`).join("") || `<p class="nota">Nenhum sinal para este produto.</p>`;
+      if (filtrados.length > mostrar) {
+        lista.insertAdjacentHTML("beforeend", `<button type="button" class="ver-mais">Ver mais ${Math.min(10, filtrados.length - mostrar)} de ${filtrados.length - mostrar} restantes</button>`);
+        $(".ver-mais", lista).addEventListener("click", () => { mostrar += 10; desenhar(prod); });
+      }
+      lista.querySelectorAll("button[data-i]").forEach(b => b.addEventListener("click", () => {
+        const s = r.sinais[Number(b.dataset.i)];
+        pedir(`Analise a conta ${s.orgao || s.municipio} (${[s.municipio, s.uf].filter(Boolean).join("/")}) a partir deste sinal (${s.tipo}, confiança ${CONF[s.confianca]}, fonte ${s.fonte}): "${s.resumo}". Quanto pode valer, o que comprar, prazo e roteiro de proposta da ${r.empresa}.`);
+      }));
+    };
+    filtros.querySelectorAll("button").forEach(b => b.addEventListener("click", () => {
+      filtros.querySelectorAll("button").forEach(x => x.classList.toggle("ativo", x === b));
+      mostrar = 10;
+      desenhar(b.dataset.p);
+    }));
+    desenhar("");
+    palco.appendChild(filtros);
+    palco.appendChild(lista);
+    palco.insertAdjacentHTML("beforeend", `<p class="nota-estrategia">Confiança: Alta = edital/licitação publicada · Média = verba, contrato ou obra/projeto em andamento · Baixa = notícia/menção. Sempre confira a fonte antes de agir.</p>`);
+  }
+  const top = r.sinais[0];
+  palco.appendChild(blocoProximas({ ...a, modo: "estudo" }, [
+    `Contas prioritárias para centrífugas em ${rotuloFoco(a.foco)}`,
+    top ? `Roteiro de proposta para ${top.orgao || top.municipio}` : `Editais abertos em ${rotuloFoco(a.foco)}`,
+    `Quem comprou centrífugas recentemente em ${rotuloFoco(a.foco)}`
+  ]));
 }
 
 async function acompanhar(id, a) {
@@ -450,7 +547,7 @@ $("#form").addEventListener("submit", (e) => {
   q.value = "";
   q.blur();
 });
-document.querySelectorAll("#cards-inicio button").forEach(b => b.addEventListener("click", () => pedir(b.dataset.p)));
+document.querySelectorAll("#cards-inicio button").forEach(b => b.addEventListener("click", () => b.dataset.radar ? pedirRadar() : pedir(b.dataset.p)));
 $("#btn-inicio").addEventListener("click", () => {
   if (!analises.length) return;
   document.body.classList.remove("sessao");

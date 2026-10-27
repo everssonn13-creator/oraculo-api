@@ -10,9 +10,10 @@ import { estimarMercadoLodo, PROCESSOS } from "./knowledge/mercadoLodo.js";
 import { consultarAssessor, provedorIA, modeloAtual } from "./assessor.js";
 import { listarDocumentos, adicionarDocumento, removerDocumento, extrairTextoArquivo, persistente } from "./knowledge/biblioteca.js";
 import { REGIOES, UFS } from "./knowledge/regioes.js";
+import { obterRadar, EMPRESA, PRODUTOS } from "./radar.js";
 
 // =====================================
-// API /api/saneamento — plataforma de inteligência de mercado
+// API /api/saneamento — Centris IA (inteligência comercial do saneamento)
 // =====================================
 
 export const saneamentoRouter = express.Router();
@@ -40,8 +41,15 @@ saneamentoRouter.get("/painel", handle(async () => ({
   ufs: Object.fromEntries(Object.entries(UFS).map(([k, v]) => [k, { nome: v.nome, regiao: v.regiao }])),
   assessorAtivo: Boolean(provedorIA()),
   provedorIA: provedorIA(),
-  modeloIA: provedorIA() ? modeloAtual() : null
+  modeloIA: provedorIA() ? modeloAtual() : null,
+  empresa: EMPRESA,
+  produtos: Object.fromEntries(PRODUTOS.map(p => [p.id, p.nome]))
 })));
+
+// Radar de compras: pré-calculado em segundo plano, responde na hora
+saneamentoRouter.get("/radar", handle((req) =>
+  obterRadar({ local: req.query.local ? String(req.query.local).slice(0, 80) : null, produto: req.query.produto || null })
+));
 
 saneamentoRouter.get("/licitacoes", handle(async (req) => {
   const { q, uf, status } = req.query;
