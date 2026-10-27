@@ -235,7 +235,22 @@ async function executarFerramenta(nome, args, ctx) {
   }
 }
 
+const ETAPAS = {
+  consultar_base_propria: "Consultando a base de conhecimento própria",
+  buscar_licitacoes: "Buscando licitações no PNCP",
+  dados_estado: "Levantando dados do estado (IBGE e PNCP)",
+  populacao_por_estado: "Consultando população por estado (IBGE)",
+  buscar_diarios_oficiais: "Varrendo diários oficiais municipais",
+  buscar_noticias: "Lendo notícias recentes do setor",
+  perfil_municipio: "Analisando o município (IBGE e geologia)",
+  analise_geologica: "Fazendo a triagem geológica",
+  base_conhecimento: "Consultando a base curada",
+  estimar_mercado_lodo: "Estimando o mercado de lodo e centrífugas",
+  exibir_painel: "Montando o painel visual"
+};
+
 async function rodarFerramenta(nome, args, ctx) {
+  ctx.progresso(ETAPAS[nome] || `Executando ${nome}`);
   let conteudo;
   try {
     conteudo = await executarFerramenta(nome, args, ctx);
@@ -281,6 +296,7 @@ async function consultarClaude(historico, system, modo, ctx) {
 
   for (let rodada = 0; rodada <= MAX_ROUNDS; rodada++) {
     const ultima = rodada === MAX_ROUNDS;
+    ctx.progresso(rodada === 0 ? "Pensando na melhor abordagem" : "Analisando os dados obtidos");
     const r = await pedir(ultima ? { tool_choice: { type: "none" } } : {});
 
     if (r.stop_reason === "refusal") {
@@ -332,6 +348,7 @@ async function consultarOpenAI(historico, system, modo, ctx) {
   const maxTokens = /^gpt-4/i.test(modeloPadrao()) ? (modo === "estudo" ? 4000 : 2000) : (modo === "estudo" ? 32000 : 16000);
 
   for (let rodada = 0; rodada < MAX_ROUNDS; rodada++) {
+    ctx.progresso(rodada === 0 ? "Pensando na melhor abordagem" : "Analisando os dados obtidos");
     const msg = await chamarOpenAI(messages, maxTokens);
     messages.push(msg);
 
@@ -357,7 +374,7 @@ async function consultarOpenAI(historico, system, modo, ctx) {
  * modo: "chat" | "estudo"
  * foco: { tipo: "brasil" | "regiao" | "uf", valor? }
  */
-export async function consultarAssessor({ historico = [], modo = "chat", foco = { tipo: "brasil" } }) {
+export async function consultarAssessor({ historico = [], modo = "chat", foco = { tipo: "brasil" }, aoProgresso = () => {} }) {
   const provedor = provedorIA();
   if (!provedor) {
     throw new Error("Nenhuma chave de IA configurada no servidor (ANTHROPIC_API_KEY ou OPENAI_API_KEY) — o assessor está desativado.");
@@ -372,7 +389,7 @@ export async function consultarAssessor({ historico = [], modo = "chat", foco = 
   const trechos = await buscarNaBiblioteca(`${pergunta} ${rotuloFoco(foco)}`, 4);
   const system = systemPrompt({ foco, trechos, modo });
 
-  const ctx = { fontes: [], paineisModelo: [], paineisAuto: [], focoUfs };
+  const ctx = { fontes: [], paineisModelo: [], paineisAuto: [], focoUfs, progresso: aoProgresso };
   const resposta = provedor === "claude"
     ? await consultarClaude(hist, system, modo, ctx)
     : await consultarOpenAI(hist, system, modo, ctx);

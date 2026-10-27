@@ -1,4 +1,5 @@
 import express from "express";
+import crypto from "node:crypto";
 import { buscarLicitacoes, radarLicitacoes, resumoPorSegmento } from "./sources/pncp.js";
 import { buscarDiariosOficiais } from "./sources/diarios.js";
 import { buscarNoticias } from "./sources/noticias.js";
@@ -79,8 +80,41 @@ saneamentoRouter.post("/assessor", handle(async (req) => {
   const focoValido = foco && ["uf", "regiao"].includes(foco.tipo) && typeof foco.valor === "string"
     ? { tipo: foco.tipo, valor: foco.valor.slice(0, 40) }
     : { tipo: "brasil" };
-  return consultarAssessor({ historico: hist, modo: modo === "estudo" ? "estudo" : "chat", foco: focoValido });
+
+  // Análises podem levar minutos: roda em segundo plano e o app consulta o andamento
+  limparTarefas();
+  const id = crypto.randomUUID();
+  const tarefa = { status: "executando", etapas: [], criadaEm: Date.now() };
+  tarefas.set(id, tarefa);
+  consultarAssessor({
+    historico: hist,
+    modo: modo === "estudo" ? "estudo" : "chat",
+    foco: focoValido,
+    aoProgresso: (etapa) => { if (tarefa.etapas.at(-1) !== etapa) tarefa.etapas.push(etapa); }
+  })
+    .then(resultado => Object.assign(tarefa, { status: "concluida", resultado }))
+    .catch(err => {
+      console.error("[saneamento] assessor:", err.message);
+      Object.assign(tarefa, { status: "erro", erro: err.message });
+    });
+  return { id };
 }));
+
+saneamentoRouter.get("/assessor/:id", handle(async (req) => {
+  const tarefa = tarefas.get(req.params.id);
+  if (!tarefa) {
+    const err = new Error("Análise não encontrada (o servidor pode ter reiniciado). Envie a pergunta novamente.");
+    err.status = 404;
+    throw err;
+  }
+  return { status: tarefa.status, etapa: tarefa.etapas.at(-1) || null, etapas: tarefa.etapas, resultado: tarefa.resultado, erro: tarefa.erro };
+}));
+
+const tarefas = new Map();
+function limparTarefas() {
+  const limite = Date.now() - 60 * 60 * 1000;
+  for (const [id, t] of tarefas) if (t.criadaEm < limite) tarefas.delete(id);
+}
 
 // ---------- Base de conhecimento própria ----------
 // Se SANEAMENTO_ADMIN_SENHA estiver definida, enviar/remover exige a senha no cabeçalho x-admin-senha
