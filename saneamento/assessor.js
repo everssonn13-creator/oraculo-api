@@ -1,4 +1,6 @@
 import fetch from "node-fetch";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import Anthropic from "@anthropic-ai/sdk";
 import { buscarLicitacoes, radarLicitacoes, resumoPorSegmento } from "./sources/pncp.js";
 import { buscarDiariosOficiais } from "./sources/diarios.js";
@@ -10,6 +12,7 @@ import { estimarMercadoLodo, PROCESSOS } from "./knowledge/mercadoLodo.js";
 import { buscarNaBiblioteca } from "./knowledge/biblioteca.js";
 import { UFS, expandirLocal, rotuloFoco } from "./knowledge/regioes.js";
 import { sanitizarPainel, painelAutomatico } from "./visuais.js";
+import { obterRadar, EMPRESA, PRODUTOS } from "./radar.js";
 
 // =====================================
 // ASSESSOR DE MERCADO — SANEAMENTO 🛰️
@@ -25,48 +28,50 @@ export const modeloAtual = () => modeloPadrao();
 const MAX_ROUNDS = 6;
 const OPENAI_URL = `${process.env.OPENAI_BASE_URL || "https://api.openai.com/v1"}/chat/completions`;
 
-const systemPrompt = ({ foco, trechos, modo }) => `
-Você é o ORÁCULO DO SANEAMENTO — assessor sênior de inteligência de mercado do saneamento básico no Brasil.
+// Memória fixa: perfil da empresa cliente + resumo executivo das fontes. Fica sempre no início do prompt,
+// idêntica em todas as chamadas, para o provedor reaproveitar (cache) sem reprocessar a cada pergunta.
+const lerConhecimento = (nome) => {
+  try { return readFileSync(fileURLToPath(new URL(`./conhecimento/${nome}`, import.meta.url)), "utf8"); } catch { return ""; }
+};
+const MEMORIA_FIXA = [lerConhecimento("perfil-empresa-cliente.md"), lerConhecimento("panorama-saneamento-2026-resumo.md")].filter(Boolean).join("\n\n");
+
+const PROMPT_FIXO = `
+Você é o CENTRIS IA — inteligência comercial do saneamento para a ${EMPRESA}.
+Seu usuário é o comercial e a diretoria: querem números, sinais de compra e ações, não textos longos.
+
+Produtos da empresa: centrífugas decanter (desaguamento/adensamento de lodo), equipamentos para ETA e ETE e preparadores de polímero.
+Toda análise deve responder: quem compra, quanto, onde, quando, com que confiança — e o que o comercial deve fazer.
+
+COMO TRABALHAR (rápido e preciso):
+1. Use primeiro a MEMÓRIA FIXA abaixo e os trechos da base própria enviados no contexto. Só chame "consultar_base_propria" se faltar dado.
+2. Para sinais de compra use "radar_oportunidades" (já pré-carregado, é instantâneo). Para editais específicos, "buscar_licitacoes".
+3. Faça no máximo 2 rodadas de ferramentas, chamando as necessárias em paralelo na mesma rodada.
+4. Em análises, chame "exibir_painel" UMA vez com:
+   - 4 a 6 indicadores numéricos (valores, quantidades, %, prazos);
+   - mapa com as UFs analisadas (com "valores" por UF quando houver número comparável);
+   - 1 a 3 gráficos ("barras" para ranking/comparação; "participacao" para composição);
+   - tabela de contas/oportunidades quando houver lista (órgão, UF, o que compra, valor, prazo, confiança);
+   - até 3 "insights" de UMA frase, cada um com um número;
+   - 2 a 3 "estrategias" = ações comerciais objetivas (até 3 ações curtas cada, com horizonte e prioridade).
+5. No final, chame "sugerir_proximas_analises" com 3 opções curtas e acionáveis (ex.: "Contas com edital aberto no PR", "Roteiro de proposta para a Sanepar").
+
+VERACIDADE (inegociável):
+- Nunca invente números, órgãos, valores, vencedores ou compras. Sem dado: "não encontrado" e onde verificar.
+- Todo sinal de compra deve trazer fonte e nível de confiança: ALTA (edital/licitação publicada), MÉDIA (verba, contrato, obra/projeto em andamento), BAIXA (notícia/menção).
+- Estratégias e ações são recomendações do assessor e devem decorrer dos dados.
+
+ESTILO: português do Brasil, executivo. Texto final com no máximo 70 palavras, em até 3 tópicos curtos — os números ficam no painel.
+
+MEMÓRIA FIXA (perfil da empresa e resumo das fontes da base):
+${MEMORIA_FIXA}
+`;
+
+const contextoDinamico = ({ foco, trechos, modo }) => `
+CONTEXTO DESTA PERGUNTA
 Hoje é ${new Date().toISOString().slice(0, 10)}. Base curada revisada em ${ATUALIZADO_EM}.
 Foco geográfico escolhido pelo usuário: ${rotuloFoco(foco)}.
-
-Especialidades: ETE/ETA, desaguamento de lodo e centrífugas decanter, licitações (Lei 14.133/PNCP),
-concessões e PPPs (Lei 14.026/2020), regulação (ANA e agências infranacionais), geologia aplicada à implantação de unidades,
-players do setor e dimensionamento de mercado.
-
-COMO TRABALHAR:
-1. A BASE PRÓPRIA (documentos que a equipe alimentou) é a fonte prioritária. Trechos relevantes já estão abaixo;
-   use "consultar_base_propria" para buscar mais. Cite o nome do documento quando usar.
-2. Para fatos atuais (editais abertos, notícias, leilões recentes, diários oficiais) use as ferramentas ao vivo.
-3. Sempre que a pergunta pedir análise, estudo, comparação, números ou uma região/estado, levante dados em VÁRIAS fontes
-   (base própria, dados do estado, população, licitações, concessões, estimativa de lodo quando couber) e chame "exibir_painel"
-   UMA vez no final com um painel RICO:
-   - mapa com as UFs analisadas (use "valores" por UF quando tiver um número comparável por estado);
-   - 4 a 6 indicadores-chave;
-   - 2 a 3 gráficos que façam sentido para a pergunta (ranking/comparação → "barras"; composição/participação → "participacao");
-   - tabela quando houver lista (editais, municípios, empresas, obras);
-   - 3 a 5 "insights" curtos (tipo oportunidade, risco ou tendência), cada um apoiado em um dado do painel;
-   - 3 a 4 "estrategias" para entrar ou crescer nesse mercado, com ações concretas, horizonte e prioridade
-     (são recomendações do assessor: devem decorrer dos dados, sem inventar números).
-   Use apenas números obtidos das ferramentas ou da base. Para conversas simples, não precisa de painel.
-4. No final de TODA resposta, chame "sugerir_proximas_analises" com 3 ou 4 próximas análises curtas (até 8 palavras cada),
-   específicas para o que acabou de ser mostrado e para o foco geográfico (ex.: "Licitações abertas de centrífugas em Goiás").
-
-REGRAS DE VERACIDADE (inegociáveis):
-- Nunca invente números, órgãos, valores de edital, vencedores ou dados por estado. Sem dado, diga "não encontrei" e sugira onde obter.
-- Separe com clareza: **Dado oficial** × **Base própria** × **Estimativa** (com premissas) × **Opinião do assessor**.
-- Itens da base curada com confianca "media" são "a confirmar".
-- Cite fontes com link em markdown.
-
-ESTILO: português do Brasil, consultivo e objetivo. O painel visual mostra os números; o texto interpreta.
-${modo === "estudo" ? "" : `Seja enxuto no texto: até ~180 palavras com a leitura executiva (o que os dados mostram e por que importa).
-Insights e estratégias vão no painel — não os repita no texto. Não liste próximos passos no texto — eles vão em "sugerir_proximas_analises".`}
-${modo === "estudo" ? `
-MODO ESTUDO DE MERCADO COMPLETO: consulte várias fontes (base própria, indicadores, concessões, licitações, notícias, diários,
-dados do estado/município e estimativa de lodo quando fizer sentido). Estruture o texto em:
-1. Sumário executivo  2. Contexto regulatório e metas  3. Tamanho e dinâmica do mercado (estimativas com premissas)
-4. Oportunidades ativas  5. Concorrência e players  6. Geologia e riscos de implantação (se aplicável)
-7. Riscos e barreiras  8. Recomendações e próximos passos  9. Fontes consultadas.` : ""}
+${modo === "estudo" ? `MODO ESTUDO COMPLETO: pode usar até 4 rodadas de ferramentas e um texto de até 250 palavras, organizado em
+Mercado (tamanho e números) · Contas e sinais de compra · Concorrência · Riscos · Plano comercial. Mantenha o painel completo.` : ""}
 
 TRECHOS DA BASE PRÓPRIA RELEVANTES PARA ESTA PERGUNTA:
 ${trechos.length ? trechos.map((t, i) => `[${i + 1}] (${t.documento}) ${t.trecho}`).join("\n\n") : "(nenhum trecho relevante encontrado)"}
@@ -77,6 +82,17 @@ const TOOLS = [
     name: "consultar_base_propria",
     description: "Busca na base de conhecimento própria (documentos, PDFs e anotações enviados pela equipe). Use antes das demais fontes.",
     parameters: { type: "object", properties: { consulta: { type: "string" } }, required: ["consulta"] }
+  },
+  {
+    name: "radar_oportunidades",
+    description: "Sinais de compra pré-carregados para os produtos da empresa (editais PNCP, diários oficiais, notícias, obras em andamento), com confiança e fonte. Instantâneo.",
+    parameters: {
+      type: "object",
+      properties: {
+        local: { type: "string", description: "UF, região ou 'Brasil' (padrão: foco do usuário)" },
+        produto: { type: "string", enum: PRODUTOS.map(p => p.id), description: "Filtra por linha de produto" }
+      }
+    }
   },
   {
     name: "buscar_licitacoes",
@@ -256,6 +272,10 @@ async function dadosEstado(ufEntrada) {
 
 async function executarFerramenta(nome, args, ctx) {
   switch (nome) {
+    case "radar_oportunidades": {
+      const r = await obterRadar({ local: args.local || (ctx.focoUfs.length ? ctx.focoUfs.join(",") : null), produto: args.produto });
+      return { ...r, sinais: r.sinais.slice(0, 30) };
+    }
     case "consultar_base_propria": return { trechos: await buscarNaBiblioteca(args.consulta || "", 6) };
     case "buscar_licitacoes": {
       const r = args.q ? await buscarLicitacoes(args) : await radarLicitacoes(args);
@@ -290,6 +310,7 @@ async function executarFerramenta(nome, args, ctx) {
 
 const ETAPAS = {
   consultar_base_propria: "Consultando a base de conhecimento própria",
+  radar_oportunidades: "Lendo o radar de compras",
   buscar_licitacoes: "Buscando licitações no PNCP",
   dados_estado: "Levantando dados do estado (IBGE e PNCP)",
   populacao_por_estado: "Consultando população por estado (IBGE)",
@@ -325,7 +346,7 @@ const truncar = (obj, max = 14000) => {
 // ---------- Claude (Anthropic) ----------
 let anthropic = null;
 
-async function consultarClaude(historico, system, modo, ctx) {
+async function consultarClaude(historico, contexto, modo, ctx) {
   anthropic ??= new Anthropic();
   const tools = TOOLS.map(t => ({ name: t.name, description: t.description, input_schema: t.parameters }));
 
@@ -336,10 +357,13 @@ async function consultarClaude(historico, system, modo, ctx) {
   const pedir = (extra = {}) => anthropic.beta.messages.create({
     model: modeloPadrao(),
     max_tokens: 16000,
-    system,
+    system: [
+      { type: "text", text: PROMPT_FIXO, cache_control: { type: "ephemeral" } },
+      { type: "text", text: contexto }
+    ],
     tools,
     messages,
-    output_config: { effort: modo === "estudo" ? "high" : "medium" },
+    output_config: { effort: modo === "estudo" ? "medium" : "low" },
     // Se um classificador de segurança recusar, a API tenta outro modelo automaticamente
     betas: ["server-side-fallback-2026-07-01"],
     fallbacks: "default",
@@ -378,32 +402,44 @@ async function consultarClaude(historico, system, modo, ctx) {
 }
 
 // ---------- OpenAI ----------
-async function chamarOpenAI(messages, maxTokens, { semFerramentas = false } = {}) {
+let esforcoSuportado = true; // desliga sozinho se o modelo recusar o parâmetro
+
+async function chamarOpenAI(messages, maxTokens, { semFerramentas = false, esforco = "low" } = {}) {
+  const raciocinio = !/^gpt-4/i.test(modeloPadrao());
+  const corpo = {
+    model: modeloPadrao(),
+    messages,
+    tools: TOOLS.map(t => ({ type: "function", function: t })),
+    tool_choice: semFerramentas ? "none" : "auto",
+    // Modelos de raciocínio (GPT-5, série o) não aceitam temperature nem max_tokens
+    ...(raciocinio ? (esforcoSuportado ? { reasoning_effort: esforco } : {}) : { temperature: 0.3 }),
+    max_completion_tokens: maxTokens
+  };
   const res = await fetch(OPENAI_URL, {
     method: "POST",
     headers: { "Content-Type": "application/json", Authorization: `Bearer ${process.env.OPENAI_API_KEY}` },
-    body: JSON.stringify({
-      model: modeloPadrao(),
-      messages,
-      tools: TOOLS.map(t => ({ type: "function", function: t })),
-      tool_choice: semFerramentas ? "none" : "auto",
-      // Modelos de raciocínio (GPT-5, série o) não aceitam temperature nem max_tokens
-      ...(/^gpt-4/i.test(modeloPadrao()) ? { temperature: 0.3 } : {}),
-      max_completion_tokens: maxTokens
-    })
+    body: JSON.stringify(corpo)
   });
   const data = await res.json();
-  if (!res.ok) throw new Error(data?.error?.message || `Falha no modelo (HTTP ${res.status})`);
+  if (!res.ok) {
+    const msg = data?.error?.message || `Falha no modelo (HTTP ${res.status})`;
+    if (corpo.reasoning_effort && /reasoning_effort|reasoning effort/i.test(msg)) {
+      esforcoSuportado = false;
+      return chamarOpenAI(messages, maxTokens, { semFerramentas, esforco });
+    }
+    throw new Error(msg);
+  }
   return data.choices[0].message;
 }
 
-async function consultarOpenAI(historico, system, modo, ctx) {
-  const messages = [{ role: "system", content: system }, ...historico];
+async function consultarOpenAI(historico, contexto, modo, ctx) {
+  const messages = [{ role: "system", content: PROMPT_FIXO }, { role: "system", content: contexto }, ...historico];
+  const esforco = modo === "estudo" ? "medium" : "low";
   const maxTokens = /^gpt-4/i.test(modeloPadrao()) ? (modo === "estudo" ? 4000 : 2000) : (modo === "estudo" ? 32000 : 16000);
 
   for (let rodada = 0; rodada < MAX_ROUNDS; rodada++) {
     ctx.progresso(rodada === 0 ? "Pensando na melhor abordagem" : "Analisando os dados obtidos");
-    const msg = await chamarOpenAI(messages, maxTokens);
+    const msg = await chamarOpenAI(messages, maxTokens, { esforco });
     messages.push(msg);
 
     if (!msg.tool_calls?.length) return msg.content;
@@ -419,7 +455,7 @@ async function consultarOpenAI(historico, system, modo, ctx) {
 
   // Estourou as rodadas: força uma resposta final sem ferramentas
   messages.push({ role: "user", content: "Consolide agora a resposta final com os dados já obtidos." });
-  const final = await chamarOpenAI(messages, maxTokens, { semFerramentas: true });
+  const final = await chamarOpenAI(messages, maxTokens, { semFerramentas: true, esforco });
   return final.content || "Não consegui consolidar a análise.";
 }
 
@@ -427,9 +463,9 @@ async function consultarOpenAI(historico, system, modo, ctx) {
 function proximasPadrao(foco) {
   const onde = rotuloFoco(foco);
   return [
-    `Licitações abertas de saneamento em ${onde}`,
-    `Demanda de centrífugas para lodo em ${onde}`,
-    `Concessões e players atuantes em ${onde}`
+    `Radar de compras em ${onde}`,
+    `Contas prioritárias para centrífugas em ${onde}`,
+    `Roteiro de proposta para a principal conta em ${onde}`
   ];
 }
 
@@ -451,12 +487,12 @@ export async function consultarAssessor({ historico = [], modo = "chat", foco = 
 
   const focoUfs = foco?.tipo === "brasil" || !foco?.valor ? [] : expandirLocal(foco.valor);
   const trechos = await buscarNaBiblioteca(`${pergunta} ${rotuloFoco(foco)}`, 4);
-  const system = systemPrompt({ foco, trechos, modo });
+  const contexto = contextoDinamico({ foco, trechos, modo });
 
   const ctx = { fontes: [], paineisModelo: [], paineisAuto: [], focoUfs, progresso: aoProgresso };
   const resposta = provedor === "claude"
-    ? await consultarClaude(hist, system, modo, ctx)
-    : await consultarOpenAI(hist, system, modo, ctx);
+    ? await consultarClaude(hist, contexto, modo, ctx)
+    : await consultarOpenAI(hist, contexto, modo, ctx);
 
   // Painel montado pelo modelo tem prioridade; senão usa os automáticos das ferramentas
   const visuais = ctx.paineisModelo.length ? ctx.paineisModelo : ctx.paineisAuto.slice(0, 2);

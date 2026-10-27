@@ -85,3 +85,14 @@ test("divide documentos longos em trechos com sobreposição", () => {
   assert.ok(t.length > 3);
   assert.ok(t.every(x => x.length <= 520));
 });
+
+import { produtosDoTexto, tipoDoSinal } from "../saneamento/radar.js";
+
+test("radar identifica produto e tipo de sinal", () => {
+  assert.deepEqual(produtosDoTexto("Aquisição de centrífuga decanter para a ETE Norte"), ["centrifuga"]);
+  assert.deepEqual(produtosDoTexto("Fornecimento de preparador de polímero"), ["polimero"]);
+  assert.deepEqual(produtosDoTexto("Contratação de frete"), []);
+  assert.equal(tipoDoSinal("Aviso de licitação — pregão eletrônico 12/2026").confianca, "alta");
+  assert.equal(tipoDoSinal("Extrato de contrato nº 45/2026").tipo, "Compra fechada");
+  assert.equal(tipoDoSinal("Abre crédito suplementar no orçamento").tipo, "Verba / orçamento");
+});

@@ -4,7 +4,7 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <meta name="theme-color" content="#070b14">
-  <title>Oráculo do Saneamento</title>
+  <title>Centris IA</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="style.css">
@@ -17,7 +17,7 @@
   <header class="topo">
     <button class="marca" id="btn-inicio" title="Voltar ao início">
       <span class="cerebro mini" id="cerebro-mini" aria-hidden="true"></span>
-      <span class="nome">Oráculo do Saneamento</span>
+      <span class="nome">Centris <b>IA</b></span>
     </button>
     <div class="acoes">
       <button class="icone" id="btn-base" title="Base de conhecimento" aria-label="Base de conhecimento">
@@ -36,12 +36,13 @@
       <div class="sombra" aria-hidden="true"></div>
     </div>
     <p class="dica-mapa" id="dica-foco">Toque num estado para focar a análise</p>
-    <h1>Como posso ajudar na sua análise?</h1>
+    <p class="marca-inicio">CENTRIS <span>IA</span></p>
+    <h1>O que o comercial precisa saber hoje?</h1>
     <div class="cards-inicio" id="cards-inicio">
-      <button data-p="Panorama do mercado de saneamento na região selecionada">Panorama do mercado</button>
-      <button data-p="Demanda de centrífugas para desaguamento de lodo na região selecionada">Centrífugas e lodo</button>
-      <button data-p="Licitações de saneamento abertas na região selecionada">Licitações abertas</button>
-      <button data-p="Concessões e principais empresas do saneamento na região selecionada">Concessões e players</button>
+      <button data-radar="1"><b>Radar de compras</b><small>Quem está comprando agora</small></button>
+      <button data-p="Contas prioritárias para centrífugas e preparadores de polímero na região selecionada"><b>Contas prioritárias</b><small>Onde vender primeiro</small></button>
+      <button data-p="Editais abertos para centrífugas, equipamentos de ETE/ETA e preparadores de polímero na região selecionada"><b>Editais abertos</b><small>Licitações em prazo</small></button>
+      <button data-p="Concorrência e concessões na região selecionada: quem comprou, quem opera e próximas demandas"><b>Concorrência</b><small>Quem comprou e quem opera</small></button>
     </div>
   </section>
 
@@ -57,7 +58,7 @@
       <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
       <select id="sel-foco" aria-label="Foco geográfico"></select>
     </label>
-    <input id="pergunta" autocomplete="off" placeholder="Pergunte sobre o mercado de saneamento…" aria-label="Pergunta">
+    <input id="pergunta" autocomplete="off" placeholder="Pergunte ao Centris IA…" aria-label="Pergunta">
     <button class="enviar" aria-label="Enviar">
       <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
     </button>

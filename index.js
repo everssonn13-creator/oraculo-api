@@ -13,6 +13,7 @@ import {
   loadUserContext
 } from "./chat/memory.store.js";
 import { saneamentoRouter } from "./saneamento/router.js";
+import { iniciarRadar } from "./saneamento/radar.js";
 
 /* ======================================================
    2️⃣ SUPABASE
@@ -722,5 +723,6 @@ app.get("/", (req, res) => res.redirect("/saneamento/"));
 ====================================================== */
 const PORT = process.env.PORT || 8080;
 app.listen(PORT, () => {
-  console.log("🔮 Oráculo Financeiro ativo na porta " + PORT);
+  iniciarRadar();
+  console.log("Centris IA + Oráculo Financeiro ativos na porta " + PORT);
 });
