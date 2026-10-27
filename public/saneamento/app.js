@@ -292,35 +292,91 @@ function salvarHistorico() {
   store.set("historico2", historico.slice(-20));
 }
 
+const pausa = (ms) => new Promise(r => setTimeout(r, ms));
+
+// Consulta o andamento da análise até terminar; tolera quedas de conexão do celular
+async function acompanharTarefa(id, pensando) {
+  const txt = () => $(".pensando-txt", pensando);
+  let falhas = 0;
+  const inicio = Date.now();
+  while (Date.now() - inicio < 20 * 60 * 1000) {
+    await pausa(2000);
+    let t;
+    try {
+      t = await api(`/assessor/${encodeURIComponent(id)}`);
+      falhas = 0;
+    } catch (e) {
+      if (/não encontrada/i.test(e.message)) throw e;
+      if (++falhas > 30) throw new Error("Sem conexão com o servidor. Verifique a internet e tente novamente.");
+      if (txt()) txt().textContent = "Conexão instável — continuo aguardando a análise";
+      continue;
+    }
+    if (t.status === "concluida") return t.resultado;
+    if (t.status === "erro") throw new Error(t.erro || "Falha na análise.");
+    if (t.etapa && txt()) txt().textContent = t.etapa;
+  }
+  throw new Error("A análise demorou demais. Tente novamente, talvez sem o modo Estudo completo.");
+}
+
+function mostrarResultado(r, pensando) {
+  pensando.remove();
+  const msg = { role: "assistant", content: r.resposta, visuais: r.visuais || [], ferramentas: r.ferramentas || [], baseUsada: r.baseUsada || [] };
+  historico.push(msg);
+  salvarHistorico();
+  const el = addAssistente(msg);
+  el.scrollIntoView({ behavior: "smooth", block: "start" });
+}
+
+function mostrarFalha(e, pensando) {
+  $(".corpo", pensando).innerHTML = erroHtml(e);
+  $(".ai-orb", pensando).classList.remove("pensando");
+  // remove a pergunta sem resposta para não confundir o contexto da próxima
+  if (historico.at(-1)?.role === "user") historico.pop();
+  salvarHistorico();
+}
+
 async function perguntar(texto) {
   const modo = $("#modo-estudo").checked ? "estudo" : "chat";
   const focoAtual = { ...foco };
   historico.push({ role: "user", content: texto, foco: focoAtual });
+  salvarHistorico();
   atualizarModo();
   addUsuario(texto, focoAtual);
   const pensando = addAssistente({
-    content: modo === "estudo" ? "Montando o estudo de mercado: consultando a base própria e as fontes públicas" : "Analisando: consultando a base própria e as fontes públicas"
+    content: modo === "estudo" ? "Iniciando o estudo de mercado" : "Iniciando a análise"
   }, true);
   rolarFim();
   $("#form-chat .enviar").disabled = true;
 
   try {
-    const r = await api("/assessor", {
+    const { id } = await api("/assessor", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ historico: historico.map(({ role, content }) => ({ role, content })), modo, foco: focoAtual })
     });
-    pensando.remove();
-    const msg = { role: "assistant", content: r.resposta, visuais: r.visuais || [], ferramentas: r.ferramentas || [], baseUsada: r.baseUsada || [] };
-    historico.push(msg);
-    salvarHistorico();
-    const el = addAssistente(msg);
-    el.scrollIntoView({ behavior: "smooth", block: "start" });
+    store.set("tarefaPendente", id);
+    mostrarResultado(await acompanharTarefa(id, pensando), pensando);
   } catch (e) {
-    $(".corpo", pensando).innerHTML = erroHtml(e);
-    $(".ai-orb", pensando).classList.remove("pensando");
-    historico.pop();
+    mostrarFalha(e, pensando);
   } finally {
+    store.set("tarefaPendente", null);
+    $("#form-chat .enviar").disabled = false;
+  }
+}
+
+// Se a página recarregou no meio de uma análise (comum no celular), retoma o acompanhamento
+async function retomarPendente() {
+  const id = store.get("tarefaPendente", null);
+  if (!id || historico.at(-1)?.role !== "user") return;
+  const pensando = addAssistente({ content: "Retomando a análise em andamento" }, true);
+  rolarFim();
+  $("#form-chat .enviar").disabled = true;
+  try {
+    mostrarResultado(await acompanharTarefa(id, pensando), pensando);
+  } catch (e) {
+    mostrarFalha(e, pensando);
+  } finally {
+    store.set("tarefaPendente", null);
     $("#form-chat .enviar").disabled = false;
   }
 }
@@ -436,4 +492,5 @@ $("#form-doc").arquivo.addEventListener("change", (e) => {
   historico.forEach(m => m.role === "user" ? addUsuario(m.content, m.foco) : addAssistente(m));
   atualizarModo();
   if (historico.length) rolarFim();
+  retomarPendente();
 })();
