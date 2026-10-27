@@ -74,7 +74,7 @@ function desenharCerebro(el, { interativo = false, destacar = [], aoSelecionar, 
   el.classList.toggle("interativo", interativo);
   el.innerHTML = `<svg viewBox="${MAPA.viewBox}" role="img" aria-label="Símbolo da IA">
     <defs><linearGradient id="${id}" x1="0" y1="0" x2="1" y2="1">
-      <stop offset="0" stop-color="#1e3a8a"/><stop offset=".55" stop-color="#2563eb"/><stop offset="1" stop-color="#38bdf8"/></linearGradient></defs>
+      <stop offset="0" stop-color="#60a5fa"/><stop offset=".55" stop-color="#38bdf8"/><stop offset="1" stop-color="#a78bfa"/></linearGradient></defs>
     <g stroke="url(#${id})">${MAPA.estados.map(e => `<path class="uf${set.has(e.uf) ? " foco" : ""}" data-uf="${e.uf}" d="${e.path}"/>`).join("")}</g>
     <g class="rede" stroke="url(#${id})"></g><g class="nos"></g></svg>`;
   const svg = $("svg", el);
@@ -144,7 +144,7 @@ function desenharMapa(el, { destacar = [], valores = null, rotuloValor = "" } = 
   const set = new Set(destacar);
 
   el.innerHTML = `<svg viewBox="${MAPA.viewBox}" role="img" aria-label="Mapa do Brasil">
-    <defs><linearGradient id="${id}" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#1e3a8a"/><stop offset=".6" stop-color="#2563eb"/><stop offset="1" stop-color="#38bdf8"/></linearGradient></defs>
+    <defs><linearGradient id="${id}" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#2563eb"/><stop offset=".6" stop-color="#3b82f6"/><stop offset="1" stop-color="#38bdf8"/></linearGradient></defs>
     ${MAPA.estados.map(e => {
       const v = valores?.[e.uf];
       if (valores) {
@@ -156,8 +156,8 @@ function desenharMapa(el, { destacar = [], valores = null, rotuloValor = "" } = 
     }).join("")}</svg>
     <div class="legenda">${valores && nums.length
       ? `<span>${esc(fmtCompacto(min))}</span><span class="rampa"></span><span>${esc(fmtCompacto(max))}</span><span>${esc(rotuloValor)}</span>
-         <span class="item"><i style="background:#eef2f7;border:1px solid #dfe6f0"></i>sem dado</span>`
-      : set.size ? `<span class="item"><i style="background:linear-gradient(135deg,#1e3a8a,#38bdf8)"></i>Região analisada</span>` : ""}</div>`;
+         <span class="item"><i style="background:#131c2b;border:1px solid #2a3850"></i>sem dado</span>`
+      : set.size ? `<span class="item"><i style="background:linear-gradient(135deg,#2563eb,#38bdf8)"></i>Região analisada</span>` : ""}</div>`;
 
   el.querySelectorAll("path").forEach(p => {
     const uf = p.dataset.uf;
@@ -200,14 +200,17 @@ function renderVisual(p) {
       graficos.forEach(gr => {
         const c = document.createElement("div");
         c.className = "cartao";
-        const max = Math.max(...gr.itens.map(i => Math.abs(i.valor)), 1);
-        c.innerHTML = `<h3>${esc(gr.titulo)} ${gr.unidade ? `<small>(${esc(gr.unidade)})</small>` : ""}</h3>
-          <div class="barras">${gr.itens.map(i => `<div class="barra"><span class="rot">${esc(i.rotulo)}</span>
-            <span class="trilho"><span class="preench" style="width:${(Math.abs(i.valor) / max) * 80}%"></span><span class="val">${esc(fmtCompacto(i.valor))}</span></span></div>`).join("")}</div>`;
-        c.querySelectorAll(".barra").forEach((b, i) => {
-          b.addEventListener("mousemove", (ev) => mostrarTip(`<b>${esc(gr.itens[i].rotulo)}</b><br>${fmt(gr.itens[i].valor, 2)} ${esc(gr.unidade || "")}`, ev));
-          b.addEventListener("mouseleave", esconderTip);
-        });
+        if (gr.tipo === "participacao") renderParticipacao(c, gr);
+        else {
+          const max = Math.max(...gr.itens.map(i => Math.abs(i.valor)), 1);
+          c.innerHTML = `<h3>${esc(gr.titulo)} ${gr.unidade ? `<small>(${esc(gr.unidade)})</small>` : ""}</h3>
+            <div class="barras">${gr.itens.map(i => `<div class="barra"><span class="rot">${esc(i.rotulo)}</span>
+              <span class="trilho"><span class="preench" style="width:${(Math.abs(i.valor) / max) * 80}%"></span><span class="val">${esc(fmtCompacto(i.valor))}</span></span></div>`).join("")}</div>`;
+          c.querySelectorAll(".barra").forEach((b, i) => {
+            b.addEventListener("mousemove", (ev) => mostrarTip(`<b>${esc(gr.itens[i].rotulo)}</b><br>${fmt(gr.itens[i].valor, 2)} ${esc(gr.unidade || "")}`, ev));
+            b.addEventListener("mouseleave", esconderTip);
+          });
+        }
         col.appendChild(c);
       });
       g.appendChild(col);
@@ -223,7 +226,60 @@ function renderVisual(p) {
       <tbody>${p.tabela.linhas.map(l => `<tr>${l.map(c => `<td>${ehUrl(c) ? `<a href="${esc(c)}" target="_blank" rel="noopener">abrir ↗</a>` : esc(c)}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`;
     frag.appendChild(t);
   }
+
+  if (p.insights?.length) {
+    frag.appendChild(tituloSecao("Insights"));
+    const box = document.createElement("div");
+    box.className = "insights";
+    const ROT = { oportunidade: "▲ Oportunidade", risco: "▼ Risco", tendencia: "◆ Tendência" };
+    box.innerHTML = p.insights.map(i => `<div class="insight ${esc(i.tipo)}"><span class="rotulo">${ROT[i.tipo] || "◆ Insight"}</span>
+      <h4>${esc(i.titulo)}</h4><p>${esc(i.texto)}</p></div>`).join("");
+    frag.appendChild(box);
+  }
+
+  if (p.estrategias?.length) {
+    frag.appendChild(tituloSecao("Estratégias para entrar no mercado"));
+    const box = document.createElement("div");
+    box.className = "estrategias";
+    box.innerHTML = p.estrategias.map((e, i) => `<div class="estrategia"><span class="num">${i + 1}</span><div>
+      <h4>${esc(e.titulo)}</h4>${e.descricao ? `<p>${esc(e.descricao)}</p>` : ""}
+      ${e.acoes.length ? `<ul>${e.acoes.map(a => `<li>${esc(a)}</li>`).join("")}</ul>` : ""}
+      ${e.prioridade || e.horizonte ? `<div class="tags">${e.prioridade ? `<span class="${e.prioridade === "alta" ? "alta" : ""}">Prioridade ${esc(e.prioridade)}</span>` : ""}${e.horizonte ? `<span>${esc(e.horizonte)}</span>` : ""}</div>` : ""}
+    </div></div>`).join("");
+    frag.appendChild(box);
+    const nota = document.createElement("p");
+    nota.className = "nota-estrategia";
+    nota.textContent = "Recomendações do assessor com base nos dados acima — valide com sua realidade comercial.";
+    frag.appendChild(nota);
+  }
   return frag;
+}
+
+function tituloSecao(texto) {
+  const h = document.createElement("h3");
+  h.className = "secao-titulo";
+  h.textContent = texto;
+  return h;
+}
+
+// Composição de um total: barra 100% empilhada + legenda com valores (até 5 partes; o resto vira "Outros")
+const CORES = ["--c1", "--c2", "--c3", "--c4", "--c5"].map(v => getComputedStyle(document.documentElement).getPropertyValue(v).trim());
+function renderParticipacao(c, gr) {
+  let itens = [...gr.itens].filter(i => i.valor > 0).sort((a, b) => b.valor - a.valor);
+  if (itens.length > 5) {
+    const resto = itens.slice(4).reduce((s, i) => s + i.valor, 0);
+    itens = [...itens.slice(0, 4), { rotulo: "Outros", valor: resto, outros: true }];
+  }
+  const total = itens.reduce((s, i) => s + i.valor, 0) || 1;
+  const cor = (i, k) => i.outros ? getComputedStyle(document.documentElement).getPropertyValue("--c-outros").trim() : CORES[k];
+  c.innerHTML = `<h3>${esc(gr.titulo)} ${gr.unidade ? `<small>(${esc(gr.unidade)})</small>` : ""}</h3>
+    <div class="part-barra">${itens.map((i, k) => `<span style="width:${(i.valor / total) * 100}%;background:${cor(i, k)}"></span>`).join("")}</div>
+    <div class="part-legenda">${itens.map((i, k) => `<div><i style="background:${cor(i, k)}"></i><span class="rot">${esc(i.rotulo)}</span>
+      <span class="val">${esc(fmtCompacto(i.valor))}</span><span class="pct">${fmt((i.valor / total) * 100, 1)}%</span></div>`).join("")}</div>`;
+  c.querySelectorAll(".part-barra span").forEach((sp, k) => {
+    sp.addEventListener("mousemove", (ev) => mostrarTip(`<b>${esc(itens[k].rotulo)}</b><br>${fmt(itens[k].valor, 2)} ${esc(gr.unidade || "")} · ${fmt((itens[k].valor / total) * 100, 1)}%`, ev));
+    sp.addEventListener("mouseleave", esconderTip);
+  });
 }
 
 /* ---------- tela de sessão ---------- */
@@ -260,6 +316,7 @@ function renderAnalise() {
 
   const r = a.resultado;
   (r.visuais || []).forEach(v => palco.appendChild(renderVisual(v)));
+  if ((r.visuais || []).some(v => v.insights || v.estrategias)) palco.appendChild(tituloSecao("Leitura do assessor"));
   const texto = document.createElement("div");
   texto.className = "cartao texto";
   texto.innerHTML = md(r.resposta);

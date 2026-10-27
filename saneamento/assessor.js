@@ -38,9 +38,17 @@ COMO TRABALHAR:
 1. A BASE PRÓPRIA (documentos que a equipe alimentou) é a fonte prioritária. Trechos relevantes já estão abaixo;
    use "consultar_base_propria" para buscar mais. Cite o nome do documento quando usar.
 2. Para fatos atuais (editais abertos, notícias, leilões recentes, diários oficiais) use as ferramentas ao vivo.
-3. Sempre que a pergunta pedir análise, estudo, comparação, números ou uma região/estado, chame "exibir_painel"
-   UMA vez no final, com mapa (UFs da região analisada), indicadores-chave, gráficos e tabela — apenas com dados obtidos das ferramentas
-   ou da base. Para conversas simples, não precisa de painel.
+3. Sempre que a pergunta pedir análise, estudo, comparação, números ou uma região/estado, levante dados em VÁRIAS fontes
+   (base própria, dados do estado, população, licitações, concessões, estimativa de lodo quando couber) e chame "exibir_painel"
+   UMA vez no final com um painel RICO:
+   - mapa com as UFs analisadas (use "valores" por UF quando tiver um número comparável por estado);
+   - 4 a 6 indicadores-chave;
+   - 2 a 3 gráficos que façam sentido para a pergunta (ranking/comparação → "barras"; composição/participação → "participacao");
+   - tabela quando houver lista (editais, municípios, empresas, obras);
+   - 3 a 5 "insights" curtos (tipo oportunidade, risco ou tendência), cada um apoiado em um dado do painel;
+   - 3 a 4 "estrategias" para entrar ou crescer nesse mercado, com ações concretas, horizonte e prioridade
+     (são recomendações do assessor: devem decorrer dos dados, sem inventar números).
+   Use apenas números obtidos das ferramentas ou da base. Para conversas simples, não precisa de painel.
 4. No final de TODA resposta, chame "sugerir_proximas_analises" com 3 ou 4 próximas análises curtas (até 8 palavras cada),
    específicas para o que acabou de ser mostrado e para o foco geográfico (ex.: "Licitações abertas de centrífugas em Goiás").
 
@@ -51,8 +59,8 @@ REGRAS DE VERACIDADE (inegociáveis):
 - Cite fontes com link em markdown.
 
 ESTILO: português do Brasil, consultivo e objetivo. O painel visual mostra os números; o texto interpreta.
-${modo === "estudo" ? "" : `Seja enxuto: até ~200 palavras, em 3 a 6 tópicos curtos (o que os dados mostram, oportunidade, risco, recomendação).
-Não repita no texto a tabela do painel. Não liste próximos passos no texto — eles vão em "sugerir_proximas_analises".`}
+${modo === "estudo" ? "" : `Seja enxuto no texto: até ~180 palavras com a leitura executiva (o que os dados mostram e por que importa).
+Insights e estratégias vão no painel — não os repita no texto. Não liste próximos passos no texto — eles vão em "sugerir_proximas_analises".`}
 ${modo === "estudo" ? `
 MODO ESTUDO DE MERCADO COMPLETO: consulte várias fontes (base própria, indicadores, concessões, licitações, notícias, diários,
 dados do estado/município e estimativa de lodo quando fizer sentido). Estruture o texto em:
@@ -180,10 +188,39 @@ const TOOLS = [
             type: "object",
             properties: {
               titulo: { type: "string" },
+              tipo: { type: "string", enum: ["barras", "participacao"], description: "barras = comparação/ranking; participacao = composição de um total (até 5 partes)" },
               unidade: { type: "string" },
               itens: { type: "array", items: { type: "object", properties: { rotulo: { type: "string" }, valor: { type: "number" } }, required: ["rotulo", "valor"] } }
             },
             required: ["titulo", "itens"]
+          }
+        },
+        insights: {
+          type: "array",
+          description: "3 a 5 leituras dos dados",
+          items: {
+            type: "object",
+            properties: {
+              tipo: { type: "string", enum: ["oportunidade", "risco", "tendencia"] },
+              titulo: { type: "string" },
+              texto: { type: "string", description: "1 a 2 frases citando o dado que sustenta" }
+            },
+            required: ["tipo", "titulo", "texto"]
+          }
+        },
+        estrategias: {
+          type: "array",
+          description: "3 a 4 estratégias de entrada ou crescimento no mercado",
+          items: {
+            type: "object",
+            properties: {
+              titulo: { type: "string" },
+              descricao: { type: "string" },
+              acoes: { type: "array", items: { type: "string" }, description: "2 a 4 ações concretas" },
+              horizonte: { type: "string", enum: ["curto prazo", "médio prazo", "longo prazo"] },
+              prioridade: { type: "string", enum: ["alta", "média", "baixa"] }
+            },
+            required: ["titulo", "acoes"]
           }
         },
         tabela: {

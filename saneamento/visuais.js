@@ -42,6 +42,7 @@ export function sanitizarPainel(p = {}, focoUfs = []) {
 
   const graficos = (p.graficos || []).slice(0, 4).map(g => ({
     titulo: txt(g.titulo, 100),
+    tipo: g.tipo === "participacao" ? "participacao" : "barras",
     unidade: txt(g.unidade, 20) || null,
     itens: (g.itens || []).slice(0, 15).map(i => ({ rotulo: txt(i.rotulo, 60), valor: num(i.valor) })).filter(i => i.rotulo && i.valor !== null)
   })).filter(g => g.itens.length);
@@ -55,6 +56,21 @@ export function sanitizarPainel(p = {}, focoUfs = []) {
       linhas: p.tabela.linhas.slice(0, 30).map(l => (Array.isArray(l) ? l : []).slice(0, colunas.length).map(c => txt(c, 160)))
     };
   }
+
+  const TIPOS = ["oportunidade", "risco", "tendencia"];
+  const insights = (p.insights || []).slice(0, 6).map(i => ({
+    tipo: TIPOS.includes(i.tipo) ? i.tipo : "tendencia", titulo: txt(i.titulo, 90), texto: txt(i.texto, 420)
+  })).filter(i => i.titulo);
+  if (insights.length) painel.insights = insights;
+
+  const estrategias = (p.estrategias || []).slice(0, 5).map(e => ({
+    titulo: txt(e.titulo, 100),
+    descricao: txt(e.descricao, 400) || null,
+    acoes: (e.acoes || []).slice(0, 5).map(a => txt(a, 200)).filter(Boolean),
+    horizonte: ["curto prazo", "médio prazo", "longo prazo"].includes(e.horizonte) ? e.horizonte : null,
+    prioridade: ["alta", "média", "baixa"].includes(e.prioridade) ? e.prioridade : null
+  })).filter(e => e.titulo);
+  if (estrategias.length) painel.estrategias = estrategias;
 
   const fontes = (p.fontes || []).slice(0, 10).map(f => ({ nome: txt(f.nome, 100), url: url(f.url) })).filter(f => f.nome);
   if (fontes.length) painel.fontes = fontes;
