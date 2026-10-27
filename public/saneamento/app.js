@@ -1,7 +1,8 @@
 // =====================================
-// Oráculo do Saneamento — arena de conversa com painéis visuais
+// Oráculo do Saneamento — símbolo da IA + análises que se moldam na tela
 // =====================================
 const API = "/api/saneamento";
+const NS = "http://www.w3.org/2000/svg";
 
 const $ = (s, el = document) => el.querySelector(s);
 const esc = (s) => String(s ?? "").replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#39;" }[c]));
@@ -13,8 +14,10 @@ const fmtCompacto = (v) => {
   if (a >= 1e4) return `${fmt(v / 1e3, 0)} mil`;
   return fmt(v, 1);
 };
-const erroHtml = (e) => `<div class="erro">⚠ ${esc(e.message || e)}</div>`;
 const md = (t) => window.marked && window.DOMPurify ? DOMPurify.sanitize(marked.parse(t || "")) : esc(t).replace(/\n/g, "<br>");
+const pausa = (ms) => new Promise(r => setTimeout(r, ms));
+let seqId = 0;
+const novoId = () => `s${++seqId}`;
 
 const store = {
   get(k, d) { try { return JSON.parse(localStorage.getItem(k)) ?? d; } catch { return d; } },
@@ -33,10 +36,8 @@ const tip = $("#tooltip");
 function mostrarTip(html, ev) {
   tip.innerHTML = html;
   tip.classList.add("vis");
-  const x = Math.min(ev.clientX + 14, window.innerWidth - tip.offsetWidth - 8);
-  const y = Math.max(ev.clientY - tip.offsetHeight - 10, 8);
-  tip.style.left = `${x}px`;
-  tip.style.top = `${y}px`;
+  tip.style.left = `${Math.min(ev.clientX + 14, window.innerWidth - tip.offsetWidth - 8)}px`;
+  tip.style.top = `${Math.max(ev.clientY - tip.offsetHeight - 10, 8)}px`;
 }
 const esconderTip = () => tip.classList.remove("vis");
 
@@ -44,15 +45,16 @@ const esconderTip = () => tip.classList.remove("vis");
 let INFO = { regioes: {}, ufs: {} };
 let MAPA = null;
 let foco = store.get("foco", { tipo: "brasil" });
-let historico = store.get("historico2", []); // [{ role, content, visuais?, ferramentas?, baseUsada?, foco? }]
+let analises = store.get("analises", []); // [{ pergunta, foco, modo, resultado?, erro?, tarefa? }]
+let atual = store.get("atual", analises.length - 1);
 
 const ufsDoFoco = (f = foco) =>
   f.tipo === "uf" ? [f.valor] : f.tipo === "regiao" ? Object.keys(INFO.ufs).filter(u => INFO.ufs[u].regiao === f.valor) : [];
 const rotuloFoco = (f = foco) =>
   f.tipo === "uf" ? INFO.ufs[f.valor]?.nome || f.valor : f.tipo === "regiao" ? INFO.regioes[f.valor] || f.valor : "Brasil";
+const salvar = () => { store.set("analises", analises.slice(-15)); store.set("atual", atual); };
 
-/* ---------- mapa (estilo "luzes à noite") ---------- */
-// Gerador pseudoaleatório com semente: as luzes ficam sempre no mesmo lugar para cada estado
+/* ---------- símbolo da IA: o Brasil como rede neural ---------- */
 function aleatorio(semente) {
   let h = 2166136261;
   for (const c of semente) h = Math.imul(h ^ c.charCodeAt(0), 16777619);
@@ -65,238 +67,234 @@ function aleatorio(semente) {
   };
 }
 
-let contadorMapas = 0;
-const NIVEIS = 5;
-
-function desenharMapa(el, { destacar = [], valores = null, rotuloValor = "", interativo = false, aoSelecionar } = {}) {
-  if (!MAPA) { el.innerHTML = `<div class="nota">mapa indisponível</div>`; return; }
-  const id = `m${++contadorMapas}`;
-  const nums = valores ? Object.values(valores).filter(v => Number.isFinite(v)) : [];
-  const min = Math.min(...nums), max = Math.max(...nums);
-  const nivel = (v) => max === min ? NIVEIS - 1 : Math.min(NIVEIS - 1, Math.floor(((v - min) / (max - min)) * NIVEIS));
-  const foco = new Set(destacar);
-  const emFoco = (uf) => valores ? Number.isFinite(valores[uf]) && (foco.size === 0 || foco.has(uf)) : foco.has(uf);
-
+function desenharCerebro(el, { interativo = false, destacar = [], aoSelecionar, detalhado = true } = {}) {
+  if (!MAPA) return;
+  const id = novoId();
+  const set = new Set(destacar);
   el.classList.toggle("interativo", interativo);
-  el.innerHTML = `
-  <svg viewBox="${MAPA.viewBox}" role="img" aria-label="Mapa do Brasil" class="mapa-noite">
-    <defs>
-      <filter id="${id}-gv" x="-20%" y="-20%" width="140%" height="140%"><feGaussianBlur stdDeviation="1.6" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
-      <filter id="${id}-gl" x="-30%" y="-30%" width="160%" height="160%"><feGaussianBlur stdDeviation="3.2" result="b"/><feMerge><feMergeNode in="b"/><feMergeNode in="b"/><feMergeNode in="SourceGraphic"/></feMerge></filter>
-      <pattern id="${id}-pt" width="5" height="5" patternUnits="userSpaceOnUse"><circle cx="1.2" cy="1.2" r=".55" fill="#3dffa8" opacity=".32"/></pattern>
-      <pattern id="${id}-po" width="4" height="4" patternUnits="userSpaceOnUse"><circle cx="1" cy="1" r=".6" fill="#ffb347" opacity=".45"/></pattern>
-      <radialGradient id="${id}-polo"><stop offset="0" stop-color="#fff7d6"/><stop offset=".35" stop-color="#ffc04d"/><stop offset="1" stop-color="#ff7a00" stop-opacity="0"/></radialGradient>
-    </defs>
-    <g class="estados">${MAPA.estados.map(e => {
-      const v = valores?.[e.uf];
-      const n = Number.isFinite(v) ? nivel(v) : -1;
-      const cls = emFoco(e.uf) ? `foco n${n}` : (valores && n < 0 ? "sem-dado" : "base");
-      return `<path id="${id}-${e.uf}" d="${e.path}" data-uf="${e.uf}" class="${cls}"/>`;
-    }).join("")}</g>
-    <g class="textura" pointer-events="none">${MAPA.estados.map(e =>
-      `<use href="#${id}-${e.uf}" fill="url(#${id}-${emFoco(e.uf) ? "po" : "pt"})"/>`).join("")}</g>
-    <g class="bordas-verdes" filter="url(#${id}-gv)" pointer-events="none">${MAPA.estados.filter(e => !emFoco(e.uf)).map(e => `<use href="#${id}-${e.uf}"/>`).join("")}</g>
-    <g class="bordas-laranja" filter="url(#${id}-gl)" pointer-events="none">${MAPA.estados.filter(e => emFoco(e.uf)).map(e => `<use href="#${id}-${e.uf}"/>`).join("")}</g>
-    <g class="rede" filter="url(#${id}-gv)" pointer-events="none"></g>
-    <g class="luzes" pointer-events="none"></g>
-    <g class="polos" pointer-events="none"></g>
-  </svg>
-  <div class="legenda-noite">${valores && nums.length ? `
-      <span>${esc(fmtCompacto(min))}</span><span class="rampa-laranja"></span><span>${esc(fmtCompacto(max))}</span>
-      <span>${esc(rotuloValor || "")}</span><span class="item"><i class="sd"></i>sem dado</span>`
-    : `<span class="item"><i class="laranja"></i>${foco.size ? "Região em foco" : "Brasil"}</span>
-       ${foco.size ? `<span class="item"><i class="verde"></i>Demais estados</span>` : ""}
-       <span class="item"><i class="polo"></i>Centro do estado</span><span class="item nota">luzes ilustrativas</span>`}</div>`;
-
+  el.innerHTML = `<svg viewBox="${MAPA.viewBox}" role="img" aria-label="Símbolo da IA">
+    <defs><linearGradient id="${id}" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#1e3a8a"/><stop offset=".55" stop-color="#2563eb"/><stop offset="1" stop-color="#38bdf8"/></linearGradient></defs>
+    <g stroke="url(#${id})">${MAPA.estados.map(e => `<path class="uf${set.has(e.uf) ? " foco" : ""}" data-uf="${e.uf}" d="${e.path}"/>`).join("")}</g>
+    <g class="rede" stroke="url(#${id})"></g><g class="nos"></g></svg>`;
   const svg = $("svg", el);
-  const NS = "http://www.w3.org/2000/svg";
-  const gLuzes = $(".luzes", svg), gRede = $(".rede", svg), gPolos = $(".polos", svg);
-  const frag = { luzes: document.createDocumentFragment(), rede: document.createDocumentFragment(), polos: document.createDocumentFragment() };
-  const ponto = (x, y) => (window.DOMPoint ? new DOMPoint(x, y) : { x, y });
-  const destacado = foco.size > 0 || Boolean(valores);
 
-  // Luzes: pontos aleatórios dentro de cada estado; mais densas e alaranjadas na região em foco
-  MAPA.estados.forEach(e => {
-    const path = svg.getElementById(`${id}-${e.uf}`);
-    if (!path?.isPointInFill) return;
-    const bb = path.getBBox();
-    if (!bb.width || !bb.height) return;
-    const rnd = aleatorio(e.uf);
-    const quente = emFoco(e.uf) || !destacado;
-    const n = Math.round(Math.min(70, Math.max(10, Math.sqrt(bb.width * bb.height) * (quente ? 0.75 : 0.35))));
-    const pts = [];
-    for (let t = 0; t < n * 8 && pts.length < n; t++) {
-      const x = bb.x + rnd() * bb.width, y = bb.y + rnd() * bb.height;
-      try { if (path.isPointInFill(ponto(x, y))) pts.push([x, y]); } catch { return; }
-    }
-    // polo: ponto mais próximo do centro do estado
-    const cx = bb.x + bb.width / 2, cy = bb.y + bb.height / 2;
-    const polo = pts.reduce((m, p) => (Math.hypot(p[0] - cx, p[1] - cy) < Math.hypot(m[0] - cx, m[1] - cy) ? p : m), pts[0] || [cx, cy]);
-
-    pts.forEach(([x, y]) => {
-      const c = document.createElementNS(NS, "circle");
-      c.setAttribute("cx", x.toFixed(1)); c.setAttribute("cy", y.toFixed(1));
-      c.setAttribute("r", (0.5 + rnd() * (quente ? 1.3 : 0.8)).toFixed(2));
-      c.setAttribute("class", quente && destacado ? "luz-quente" : quente ? "luz-quente suave" : "luz-fria");
-      c.style.animationDelay = `${(rnd() * 4).toFixed(2)}s`;
-      frag.luzes.appendChild(c);
+  if (detalhado) {
+    // neurônios: centro de cada estado + pontos internos; sinapses: ligações aos vizinhos mais próximos
+    const nos = [];
+    svg.querySelectorAll(".uf").forEach(p => {
+      const bb = p.getBBox();
+      if (!bb.width) return;
+      const rnd = aleatorio(p.dataset.uf);
+      const dentro = (x, y) => { try { return p.isPointInFill(new DOMPoint(x, y)); } catch { return true; } };
+      const cx = bb.x + bb.width / 2, cy = bb.y + bb.height / 2;
+      if (dentro(cx, cy)) nos.push({ x: cx, y: cy, maior: true });
+      const extras = Math.min(4, Math.max(1, Math.round(Math.sqrt(bb.width * bb.height) / 45)));
+      for (let t = 0, n = 0; t < 40 && n < extras; t++) {
+        const x = bb.x + rnd() * bb.width, y = bb.y + rnd() * bb.height;
+        if (dentro(x, y)) { nos.push({ x, y, maior: false }); n++; }
+      }
     });
+    const rede = $(".rede", svg), gNos = $(".nos", svg);
+    const vistos = new Set();
+    nos.forEach((a, i) => {
+      nos.map((b, j) => ({ j, d: Math.hypot(a.x - b.x, a.y - b.y) }))
+        .filter(o => o.j !== i).sort((p, q) => p.d - q.d).slice(0, 3)
+        .forEach(({ j }) => {
+          const chave = i < j ? `${i}-${j}` : `${j}-${i}`;
+          if (vistos.has(chave)) return;
+          vistos.add(chave);
+          const b = nos[j];
+          const l = document.createElementNS(NS, "line");
+          l.setAttribute("x1", a.x.toFixed(1)); l.setAttribute("y1", a.y.toFixed(1));
+          l.setAttribute("x2", b.x.toFixed(1)); l.setAttribute("y2", b.y.toFixed(1));
+          l.setAttribute("class", vistos.size % 5 === 0 ? "sinapse pulso" : "sinapse");
+          l.style.animationDelay = `${(vistos.size % 7) * 0.4}s`;
+          rede.appendChild(l);
+        });
+    });
+    nos.forEach((n, i) => {
+      const c = document.createElementNS(NS, "circle");
+      c.setAttribute("cx", n.x.toFixed(1)); c.setAttribute("cy", n.y.toFixed(1));
+      c.setAttribute("r", n.maior ? "4.2" : "2.4");
+      c.setAttribute("class", n.maior ? "neuronio maior" : "neuronio");
+      if (n.maior) { c.setAttribute("fill", `url(#${id})`); c.style.animationDelay = `${(i % 9) * 0.35}s`; }
+      gNos.appendChild(c);
+    });
+  }
 
-    if (quente && destacado) {
-      // rede: linhas do polo para as luzes do estado
-      pts.forEach(([x, y], i) => {
-        if (i % 2) return;
-        const l = document.createElementNS(NS, "line");
-        l.setAttribute("x1", polo[0].toFixed(1)); l.setAttribute("y1", polo[1].toFixed(1));
-        l.setAttribute("x2", x.toFixed(1)); l.setAttribute("y2", y.toFixed(1));
-        l.style.animationDelay = `${(rnd() * 3).toFixed(2)}s`;
-        frag.rede.appendChild(l);
-      });
-    }
-    if (quente) {
-      const g = document.createElementNS(NS, "circle");
-      g.setAttribute("cx", polo[0].toFixed(1)); g.setAttribute("cy", polo[1].toFixed(1));
-      g.setAttribute("r", destacado ? "7" : "4.5");
-      g.setAttribute("fill", `url(#${id}-polo)`);
-      g.setAttribute("class", "polo");
-      frag.polos.appendChild(g);
-    }
-  });
-  gLuzes.appendChild(frag.luzes); gRede.appendChild(frag.rede); gPolos.appendChild(frag.polos);
+  if (interativo) {
+    svg.querySelectorAll(".uf").forEach(p => {
+      p.addEventListener("click", () => aoSelecionar?.(p.dataset.uf));
+      p.addEventListener("mousemove", (ev) => mostrarTip(esc(INFO.ufs[p.dataset.uf]?.nome || p.dataset.uf), ev));
+      p.addEventListener("mouseleave", esconderTip);
+    });
+  }
+}
 
-  svg.querySelectorAll(".estados path").forEach(p => {
+/* ---------- mapa de dados (estilo profissional) ---------- */
+const RAMPA = ["--seq-1", "--seq-2", "--seq-3", "--seq-4", "--seq-5"].map(v => getComputedStyle(document.documentElement).getPropertyValue(v).trim());
+
+function desenharMapa(el, { destacar = [], valores = null, rotuloValor = "" } = {}) {
+  if (!MAPA) { el.innerHTML = `<p class="nota">mapa indisponível</p>`; return; }
+  const id = novoId();
+  const nums = valores ? Object.values(valores).filter(Number.isFinite) : [];
+  const min = Math.min(...nums), max = Math.max(...nums);
+  const cor = (v) => max === min ? RAMPA[3] : RAMPA[Math.min(4, Math.floor(((v - min) / (max - min)) * 5))];
+  const set = new Set(destacar);
+
+  el.innerHTML = `<svg viewBox="${MAPA.viewBox}" role="img" aria-label="Mapa do Brasil">
+    <defs><linearGradient id="${id}" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stop-color="#1e3a8a"/><stop offset=".6" stop-color="#2563eb"/><stop offset="1" stop-color="#38bdf8"/></linearGradient></defs>
+    ${MAPA.estados.map(e => {
+      const v = valores?.[e.uf];
+      if (valores) {
+        return Number.isFinite(v)
+          ? `<path d="${e.path}" data-uf="${e.uf}" fill="${cor(v)}" class="${set.has(e.uf) && set.size < 27 ? "foco-borda" : ""}"/>`
+          : `<path d="${e.path}" data-uf="${e.uf}" class="sem-dado"/>`;
+      }
+      return set.has(e.uf) ? `<path d="${e.path}" data-uf="${e.uf}" fill="url(#${id})"/>` : `<path d="${e.path}" data-uf="${e.uf}" class="base"/>`;
+    }).join("")}</svg>
+    <div class="legenda">${valores && nums.length
+      ? `<span>${esc(fmtCompacto(min))}</span><span class="rampa"></span><span>${esc(fmtCompacto(max))}</span><span>${esc(rotuloValor)}</span>
+         <span class="item"><i style="background:#eef2f7;border:1px solid #dfe6f0"></i>sem dado</span>`
+      : set.size ? `<span class="item"><i style="background:linear-gradient(135deg,#1e3a8a,#38bdf8)"></i>Região analisada</span>` : ""}</div>`;
+
+  el.querySelectorAll("path").forEach(p => {
     const uf = p.dataset.uf;
     p.addEventListener("mousemove", (ev) => {
       const v = valores?.[uf];
-      mostrarTip(`<b>${esc(INFO.ufs[uf]?.nome || uf)}</b>${valores ? `<br>${Number.isFinite(v) ? `${fmt(v, 1)} ${esc(rotuloValor || "")}` : "sem dado"}` : ""}`, ev);
+      mostrarTip(`<b>${esc(INFO.ufs[uf]?.nome || uf)}</b>${valores ? `<br>${Number.isFinite(v) ? `${fmt(v, 1)} ${esc(rotuloValor)}` : "sem dado"}` : ""}`, ev);
     });
     p.addEventListener("mouseleave", esconderTip);
-    if (interativo) p.addEventListener("click", () => aoSelecionar?.(uf));
   });
 }
 
-/* ---------- foco ---------- */
-function definirFoco(novo) {
-  foco = novo;
-  store.set("foco", foco);
-  $("#sel-foco").value = foco.tipo === "brasil" ? "brasil" : `${foco.tipo}:${foco.valor}`;
-  desenharMapa($("#mapa-inicio"), { destacar: ufsDoFoco(), interativo: true, aoSelecionar: ufClicada });
-  document.querySelectorAll(".chip-regiao").forEach(c => c.classList.toggle("ativo", c.dataset.foco === $("#sel-foco").value));
-}
-function ufClicada(uf) {
-  definirFoco(foco.tipo === "uf" && foco.valor === uf ? { tipo: "brasil" } : { tipo: "uf", valor: uf });
-}
-function montarSeletores() {
-  const sel = $("#sel-foco");
-  sel.innerHTML = `<option value="brasil">Brasil</option>
-    <optgroup label="Regiões">${Object.entries(INFO.regioes).map(([k, v]) => `<option value="regiao:${k}">${esc(v)}</option>`).join("")}</optgroup>
-    <optgroup label="Estados">${Object.entries(INFO.ufs).sort((a, b) => a[1].nome.localeCompare(b[1].nome)).map(([k, v]) => `<option value="uf:${k}">${esc(v.nome)}</option>`).join("")}</optgroup>`;
-  sel.addEventListener("change", () => {
-    const [tipo, valor] = sel.value.split(":");
-    definirFoco(tipo === "brasil" ? { tipo: "brasil" } : { tipo, valor });
-  });
-  $("#chips-regiao").innerHTML = [["brasil", "Brasil"], ...Object.entries(INFO.regioes).map(([k, v]) => [`regiao:${k}`, v])]
-    .map(([k, v]) => `<button type="button" class="chip-regiao" data-foco="${k}">${esc(v)}</button>`).join("");
-  document.querySelectorAll(".chip-regiao").forEach(c => c.addEventListener("click", () => {
-    const [tipo, valor] = c.dataset.foco.split(":");
-    definirFoco(tipo === "brasil" ? { tipo: "brasil" } : { tipo, valor });
-  }));
-}
-
-/* ---------- painéis ---------- */
+/* ---------- painel de uma análise ---------- */
 const ehUrl = (s) => /^https?:\/\/\S+$/i.test(String(s).trim());
 
-function renderPainel(p) {
-  const el = document.createElement("section");
-  el.className = "painel card-vidro";
-  const temMapa = Boolean(p.mapa);
+function renderVisual(p) {
+  const frag = document.createDocumentFragment();
   const graficos = p.graficos || [];
 
-  el.innerHTML = `
-    <div class="painel-cab"><h3>${esc(p.titulo)}</h3></div>
-    ${p.kpis?.length ? `<div class="kpis">${p.kpis.map(k => `
-      <div class="kpi"><div class="v">${esc(k.valor)}</div><div class="r">${esc(k.rotulo)}</div>
-        ${k.detalhe || k.fonte ? `<div class="d">${esc([k.detalhe, k.fonte && `fonte: ${k.fonte}`].filter(Boolean).join(" · "))}</div>` : ""}</div>`).join("")}</div>` : ""}
-    ${temMapa || graficos.length ? `<div class="painel-grade ${temMapa && graficos.length ? "" : "so-um"}">
-      ${temMapa ? `<div class="bloco"><h4>${esc(p.mapa.valores ? `Mapa — ${p.mapa.rotuloValor || "valores por estado"}` : "Região analisada")}</h4><div class="mapa"></div></div>` : ""}
-      ${graficos.length ? `<div class="graficos" style="display:grid;gap:16px">${graficos.map((g, gi) => `
-        <div class="bloco"><h4>${esc(g.titulo)} ${g.unidade ? `<small>(${esc(g.unidade)})</small>` : ""}</h4>
-          <div class="barras" data-g="${gi}"></div></div>`).join("")}</div>` : ""}
-    </div>` : ""}
-    ${p.tabela ? `<div class="bloco">${p.tabela.titulo ? `<h4>${esc(p.tabela.titulo)}</h4>` : ""}
-      <div class="tabela-wrap"><table><thead><tr>${p.tabela.colunas.map(c => `<th>${esc(c)}</th>`).join("")}</tr></thead>
-      <tbody>${p.tabela.linhas.map(l => `<tr>${l.map(c => `<td>${ehUrl(c) ? `<a href="${esc(c)}" target="_blank" rel="noopener">abrir ↗</a>` : esc(c)}</td>`).join("")}</tr>`).join("")}</tbody></table></div></div>` : ""}
-    ${p.fontes?.length ? `<div class="fontes">Fontes: ${p.fontes.map(f => f.url ? `<a href="${esc(f.url)}" target="_blank" rel="noopener">${esc(f.nome)}</a>` : `<span class="f">${esc(f.nome)}</span>`).join("")}</div>` : ""}`;
-
-  // desenha depois que o painel entra na tela (as luzes precisam das medidas reais do SVG)
-  if (temMapa) requestAnimationFrame(() => desenharMapa($(".mapa", el), p.mapa));
-
-  graficos.forEach((g, gi) => {
-    const max = Math.max(...g.itens.map(i => Math.abs(i.valor)), 1);
-    const box = el.querySelector(`.barras[data-g="${gi}"]`);
-    box.innerHTML = g.itens.map(i => `
-      <div class="barra"><span class="rot">${esc(i.rotulo)}</span>
-        <span class="trilha"><span class="preench" style="width:${(Math.abs(i.valor) / max) * 82}%"></span><span class="val">${esc(fmtCompacto(i.valor))}</span></span></div>`).join("");
-    box.querySelectorAll(".barra").forEach((b, i) => {
-      const it = g.itens[i];
-      b.addEventListener("mousemove", (ev) => mostrarTip(`<b>${esc(it.rotulo)}</b><br>${fmt(it.valor, 2)} ${esc(g.unidade || "")}`, ev));
-      b.addEventListener("mouseleave", esconderTip);
-    });
-  });
-  return el;
-}
-
-/* ---------- conversa ---------- */
-const conversa = $("#conversa");
-
-function addUsuario(texto, f) {
-  const div = document.createElement("div");
-  div.className = "msg-user";
-  div.innerHTML = `${f && f.tipo !== "brasil" ? `<span class="foco-tag">📍 ${esc(rotuloFoco(f))}</span>` : ""}${esc(texto).replace(/\n/g, "<br>")}`;
-  conversa.appendChild(div);
-}
-
-function addAssistente({ content, visuais = [], ferramentas = [], baseUsada = [] }, pensando = false) {
-  const div = document.createElement("div");
-  div.className = "msg-ai";
-  div.innerHTML = `<div class="ai-orb pequeno ${pensando ? "pensando" : ""}"><span></span></div><div class="corpo"></div>`;
-  const corpo = $(".corpo", div);
-  if (pensando) {
-    corpo.innerHTML = `<div class="texto-ai"><span class="pensando-txt">${esc(content)}</span></div>`;
-  } else {
-    visuais.forEach(v => corpo.appendChild(renderPainel(v)));
-    const t = document.createElement("div");
-    t.className = "texto-ai";
-    t.innerHTML = md(content);
-    t.querySelectorAll("a").forEach(a => { a.target = "_blank"; a.rel = "noopener"; });
-    corpo.appendChild(t);
-    if (ferramentas.length || baseUsada.length) {
-      corpo.insertAdjacentHTML("beforeend", `<div class="meta-ai">
-        ${baseUsada.map(b => `<span class="tag base">📚 ${esc(b)}</span>`).join("")}
-        ${ferramentas.filter(f => f.ferramenta !== "exibir_painel").map(f => `<span class="tag ${f.ok ? "ok" : "falha"}">⟲ ${esc(f.ferramenta.replace(/_/g, " "))}</span>`).join("")}</div>`);
-    }
+  if (p.kpis?.length) {
+    const k = document.createElement("div");
+    k.className = "kpis";
+    k.innerHTML = p.kpis.map(x => `<div class="kpi"><div class="v">${esc(x.valor)}</div><div class="r">${esc(x.rotulo)}</div>
+      ${x.detalhe || x.fonte ? `<div class="d">${esc([x.detalhe, x.fonte && `fonte: ${x.fonte}`].filter(Boolean).join(" · "))}</div>` : ""}</div>`).join("");
+    frag.appendChild(k);
   }
-  conversa.appendChild(div);
+
+  if (p.mapa || graficos.length) {
+    const g = document.createElement("div");
+    g.className = `grade${p.mapa && graficos.length ? "" : " um"}`;
+    if (p.mapa) {
+      const c = document.createElement("div");
+      c.className = "cartao";
+      c.innerHTML = `<h3>${esc(p.mapa.valores ? (p.mapa.rotuloValor ? `Por estado — ${p.mapa.rotuloValor}` : "Por estado") : "Região analisada")}</h3><div class="mapa"></div>`;
+      desenharMapa($(".mapa", c), p.mapa);
+      g.appendChild(c);
+    }
+    if (graficos.length) {
+      const col = document.createElement("div");
+      col.className = "coluna";
+      graficos.forEach(gr => {
+        const c = document.createElement("div");
+        c.className = "cartao";
+        const max = Math.max(...gr.itens.map(i => Math.abs(i.valor)), 1);
+        c.innerHTML = `<h3>${esc(gr.titulo)} ${gr.unidade ? `<small>(${esc(gr.unidade)})</small>` : ""}</h3>
+          <div class="barras">${gr.itens.map(i => `<div class="barra"><span class="rot">${esc(i.rotulo)}</span>
+            <span class="trilho"><span class="preench" style="width:${(Math.abs(i.valor) / max) * 80}%"></span><span class="val">${esc(fmtCompacto(i.valor))}</span></span></div>`).join("")}</div>`;
+        c.querySelectorAll(".barra").forEach((b, i) => {
+          b.addEventListener("mousemove", (ev) => mostrarTip(`<b>${esc(gr.itens[i].rotulo)}</b><br>${fmt(gr.itens[i].valor, 2)} ${esc(gr.unidade || "")}`, ev));
+          b.addEventListener("mouseleave", esconderTip);
+        });
+        col.appendChild(c);
+      });
+      g.appendChild(col);
+    }
+    frag.appendChild(g);
+  }
+
+  if (p.tabela) {
+    const t = document.createElement("div");
+    t.className = "cartao";
+    t.innerHTML = `${p.tabela.titulo ? `<h3>${esc(p.tabela.titulo)}</h3>` : ""}<div class="tabela"><table>
+      <thead><tr>${p.tabela.colunas.map(c => `<th>${esc(c)}</th>`).join("")}</tr></thead>
+      <tbody>${p.tabela.linhas.map(l => `<tr>${l.map(c => `<td>${ehUrl(c) ? `<a href="${esc(c)}" target="_blank" rel="noopener">abrir ↗</a>` : esc(c)}</td>`).join("")}</tr>`).join("")}</tbody></table></div>`;
+    frag.appendChild(t);
+  }
+  return frag;
+}
+
+/* ---------- tela de sessão ---------- */
+const palco = $("#analise");
+
+function renderTrilha() {
+  const trilha = $("#trilha");
+  trilha.hidden = analises.length < 2;
+  trilha.innerHTML = analises.map((a, i) => `<button type="button" class="${i === atual ? "ativa" : ""}" data-i="${i}" title="${esc(a.pergunta)}">${i + 1}. ${esc(a.pergunta)}</button>`).join("");
+  trilha.querySelectorAll("button").forEach(b => b.addEventListener("click", () => { atual = Number(b.dataset.i); salvar(); renderAnalise(); }));
+  $(".ativa", trilha)?.scrollIntoView({ inline: "center", block: "nearest" });
+}
+
+function renderAnalise() {
+  document.body.classList.toggle("sessao", analises.length > 0);
+  document.body.classList.toggle("inicio", analises.length === 0);
+  renderTrilha();
+  const a = analises[atual];
+  if (!a) { palco.innerHTML = ""; return; }
+
+  palco.innerHTML = `<header class="analise-cab"><h2 class="pergunta">${esc(a.pergunta)}</h2>
+    <div class="meta">${esc(rotuloFoco(a.foco))}${a.modo === "estudo" ? " · estudo completo" : ""}</div></header>`;
+
+  if (!a.resultado && !a.erro) {
+    palco.insertAdjacentHTML("beforeend", `<div class="pensando"><div class="cerebro pensando"></div><div class="etapa">${esc(a.etapa || "Analisando")}</div></div>`);
+    requestAnimationFrame(() => desenharCerebro($(".pensando .cerebro", palco), { destacar: ufsDoFoco(a.foco) }));
+    return;
+  }
+  if (a.erro) {
+    palco.insertAdjacentHTML("beforeend", `<div class="erro">⚠ ${esc(a.erro)}</div>`);
+    palco.appendChild(blocoProximas(a, [`Tentar novamente: ${a.pergunta}`]));
+    return;
+  }
+
+  const r = a.resultado;
+  (r.visuais || []).forEach(v => palco.appendChild(renderVisual(v)));
+  const texto = document.createElement("div");
+  texto.className = "cartao texto";
+  texto.innerHTML = md(r.resposta);
+  texto.querySelectorAll("a").forEach(l => { l.target = "_blank"; l.rel = "noopener"; });
+  palco.appendChild(texto);
+
+  const fontes = [...new Set([
+    ...(r.visuais || []).flatMap(v => v.fontes || []).map(f => f.url ? `<a href="${esc(f.url)}" target="_blank" rel="noopener">${esc(f.nome)}</a>` : `<span>${esc(f.nome)}</span>`),
+    ...(r.baseUsada || []).map(b => `<span>Base: ${esc(b)}</span>`)
+  ])];
+  if (fontes.length) palco.insertAdjacentHTML("beforeend", `<details class="fontes"><summary>Fontes consultadas (${fontes.length})</summary><div class="lista">${fontes.join("")}</div></details>`);
+  palco.appendChild(blocoProximas(a, r.proximas || []));
+}
+
+function blocoProximas(a, opcoes) {
+  const div = document.createElement("section");
+  div.className = "proximas";
+  const estudo = a.modo !== "estudo" && a.resultado ? `<button type="button" class="estudo" data-estudo="1">Gerar estudo completo sobre isto</button>` : "";
+  div.innerHTML = `<h3>Próximas análises</h3><div class="opcoes">${opcoes.map(o => `<button type="button">${esc(o)}</button>`).join("")}${estudo}</div>`;
+  div.querySelectorAll("button").forEach(b => b.addEventListener("click", () => {
+    if (b.dataset.estudo) pedir(`Estudo completo: ${a.pergunta}`, "estudo");
+    else pedir(b.textContent.replace(/^Tentar novamente: /, ""));
+  }));
   return div;
 }
 
-function rolarFim() {
-  requestAnimationFrame(() => window.scrollTo({ top: document.body.scrollHeight, behavior: "smooth" }));
+/* ---------- pedir análise ---------- */
+let ocupado = false;
+
+function contexto() {
+  // conversa enviada à IA: perguntas e respostas anteriores desta sessão
+  return analises.flatMap(a => a.resultado ? [{ role: "user", content: a.pergunta }, { role: "assistant", content: a.resultado.resposta }] : []);
 }
 
-function atualizarModo() {
-  $("#boas-vindas").hidden = historico.length > 0;
-}
-
-function salvarHistorico() {
-  store.set("historico2", historico.slice(-20));
-}
-
-const pausa = (ms) => new Promise(r => setTimeout(r, ms));
-
-// Consulta o andamento da análise até terminar; tolera quedas de conexão do celular
-async function acompanharTarefa(id, pensando) {
-  const txt = () => $(".pensando-txt", pensando);
+async function acompanhar(id, a) {
   let falhas = 0;
   const inicio = Date.now();
   while (Date.now() - inicio < 20 * 60 * 1000) {
@@ -308,102 +306,107 @@ async function acompanharTarefa(id, pensando) {
     } catch (e) {
       if (/não encontrada/i.test(e.message)) throw e;
       if (++falhas > 30) throw new Error("Sem conexão com o servidor. Verifique a internet e tente novamente.");
-      if (txt()) txt().textContent = "Conexão instável — continuo aguardando a análise";
       continue;
     }
     if (t.status === "concluida") return t.resultado;
     if (t.status === "erro") throw new Error(t.erro || "Falha na análise.");
-    if (t.etapa && txt()) txt().textContent = t.etapa;
+    if (t.etapa && t.etapa !== a.etapa) {
+      a.etapa = t.etapa;
+      const el = $(".pensando .etapa", palco);
+      if (el && analises[atual] === a) el.textContent = t.etapa;
+    }
   }
-  throw new Error("A análise demorou demais. Tente novamente, talvez sem o modo Estudo completo.");
+  throw new Error("A análise demorou demais. Tente novamente.");
 }
 
-function mostrarResultado(r, pensando) {
-  pensando.remove();
-  const msg = { role: "assistant", content: r.resposta, visuais: r.visuais || [], ferramentas: r.ferramentas || [], baseUsada: r.baseUsada || [] };
-  historico.push(msg);
-  salvarHistorico();
-  const el = addAssistente(msg);
-  el.scrollIntoView({ behavior: "smooth", block: "start" });
+async function executar(a, id) {
+  ocupado = true;
+  $("#form .enviar").disabled = true;
+  try {
+    a.resultado = await acompanhar(id, a);
+  } catch (e) {
+    a.erro = e.message;
+  } finally {
+    delete a.tarefa;
+    ocupado = false;
+    $("#form .enviar").disabled = false;
+    salvar();
+    if (analises[atual] === a) { renderAnalise(); window.scrollTo({ top: 0, behavior: "smooth" }); }
+  }
 }
 
-function mostrarFalha(e, pensando) {
-  $(".corpo", pensando).innerHTML = erroHtml(e);
-  $(".ai-orb", pensando).classList.remove("pensando");
-  // remove a pergunta sem resposta para não confundir o contexto da próxima
-  if (historico.at(-1)?.role === "user") historico.pop();
-  salvarHistorico();
-}
-
-async function perguntar(texto) {
-  const modo = $("#modo-estudo").checked ? "estudo" : "chat";
-  const focoAtual = { ...foco };
-  historico.push({ role: "user", content: texto, foco: focoAtual });
-  salvarHistorico();
-  atualizarModo();
-  addUsuario(texto, focoAtual);
-  const pensando = addAssistente({
-    content: modo === "estudo" ? "Iniciando o estudo de mercado" : "Iniciando a análise"
-  }, true);
-  rolarFim();
-  $("#form-chat .enviar").disabled = true;
-
+async function pedir(pergunta, modo = "chat") {
+  if (ocupado || !pergunta.trim()) return;
+  const a = { pergunta: pergunta.trim(), foco: { ...foco }, modo };
+  const conversa = [...contexto(), { role: "user", content: a.pergunta }];
+  analises.push(a);
+  atual = analises.length - 1;
+  salvar();
+  renderAnalise();
+  window.scrollTo({ top: 0, behavior: "smooth" });
   try {
     const { id } = await api("/assessor", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ historico: historico.map(({ role, content }) => ({ role, content })), modo, foco: focoAtual })
+      body: JSON.stringify({ historico: conversa, modo, foco: a.foco })
     });
-    store.set("tarefaPendente", id);
-    mostrarResultado(await acompanharTarefa(id, pensando), pensando);
+    a.tarefa = id;
+    salvar();
+    await executar(a, id);
   } catch (e) {
-    mostrarFalha(e, pensando);
-  } finally {
-    store.set("tarefaPendente", null);
-    $("#form-chat .enviar").disabled = false;
+    a.erro = e.message;
+    salvar();
+    renderAnalise();
   }
 }
 
-// Se a página recarregou no meio de uma análise (comum no celular), retoma o acompanhamento
-async function retomarPendente() {
-  const id = store.get("tarefaPendente", null);
-  if (!id || historico.at(-1)?.role !== "user") return;
-  const pensando = addAssistente({ content: "Retomando a análise em andamento" }, true);
-  rolarFim();
-  $("#form-chat .enviar").disabled = true;
-  try {
-    mostrarResultado(await acompanharTarefa(id, pensando), pensando);
-  } catch (e) {
-    mostrarFalha(e, pensando);
-  } finally {
-    store.set("tarefaPendente", null);
-    $("#form-chat .enviar").disabled = false;
-  }
+/* ---------- foco ---------- */
+function definirFoco(novo) {
+  foco = novo;
+  store.set("foco", foco);
+  $("#sel-foco").value = foco.tipo === "brasil" ? "brasil" : `${foco.tipo}:${foco.valor}`;
+  $("#dica-foco").textContent = foco.tipo === "brasil" ? "Toque num estado para focar a análise" : `Foco: ${rotuloFoco()} · toque de novo para voltar ao Brasil`;
+  desenharCerebro($("#cerebro-grande"), {
+    interativo: true,
+    destacar: ufsDoFoco(),
+    aoSelecionar: (uf) => definirFoco(foco.tipo === "uf" && foco.valor === uf ? { tipo: "brasil" } : { tipo: "uf", valor: uf })
+  });
 }
 
-const entrada = $("#entrada");
-entrada.addEventListener("input", () => { entrada.style.height = "auto"; entrada.style.height = `${Math.min(entrada.scrollHeight, 160)}px`; });
-entrada.addEventListener("keydown", (e) => {
-  if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); $("#form-chat").requestSubmit(); }
-});
-$("#form-chat").addEventListener("submit", (e) => {
+function montarSeletor() {
+  const sel = $("#sel-foco");
+  sel.innerHTML = `<option value="brasil">Brasil</option>
+    <optgroup label="Regiões">${Object.entries(INFO.regioes).map(([k, v]) => `<option value="regiao:${k}">${esc(v)}</option>`).join("")}</optgroup>
+    <optgroup label="Estados">${Object.entries(INFO.ufs).sort((a, b) => a[1].nome.localeCompare(b[1].nome)).map(([k, v]) => `<option value="uf:${k}">${esc(v.nome)}</option>`).join("")}</optgroup>`;
+  sel.addEventListener("change", () => {
+    const [tipo, valor] = sel.value.split(":");
+    definirFoco(tipo === "brasil" ? { tipo: "brasil" } : { tipo, valor });
+  });
+}
+
+/* ---------- eventos ---------- */
+$("#form").addEventListener("submit", (e) => {
   e.preventDefault();
-  const t = entrada.value.trim();
-  if (!t || $("#form-chat .enviar").disabled) return;
-  entrada.value = "";
-  entrada.style.height = "auto";
-  perguntar(t);
+  const q = $("#pergunta");
+  if (!q.value.trim() || ocupado) return;
+  pedir(q.value);
+  q.value = "";
+  q.blur();
 });
-document.querySelectorAll("#sugestoes button").forEach(b => b.addEventListener("click", () => {
-  if (b.dataset.estudo) $("#modo-estudo").checked = true;
-  perguntar(b.textContent.trim());
-}));
+document.querySelectorAll("#cards-inicio button").forEach(b => b.addEventListener("click", () => pedir(b.dataset.p)));
+$("#btn-inicio").addEventListener("click", () => {
+  if (!analises.length) return;
+  document.body.classList.remove("sessao");
+  document.body.classList.add("inicio");
+  definirFoco(foco);
+});
 $("#btn-nova").addEventListener("click", () => {
-  historico = [];
-  salvarHistorico();
-  conversa.innerHTML = "";
-  atualizarModo();
-  window.scrollTo({ top: 0 });
+  if (ocupado) return;
+  analises = [];
+  atual = -1;
+  salvar();
+  renderAnalise();
+  definirFoco(foco);
 });
 
 /* ---------- base de conhecimento ---------- */
@@ -418,16 +421,14 @@ $("#btn-base").addEventListener("click", () => abrirGaveta(true));
 $("#fechar-gaveta").addEventListener("click", () => abrirGaveta(false));
 veu.addEventListener("click", () => abrirGaveta(false));
 
-let exigeSenha = false;
 async function carregarDocs() {
   const lista = $("#lista-docs");
   lista.innerHTML = `<li class="nota">carregando…</li>`;
   try {
     const r = await api("/conhecimento");
-    exigeSenha = r.exigeSenha;
-    $("#campo-senha").hidden = !exigeSenha;
+    $("#campo-senha").hidden = !r.exigeSenha;
     $("#aviso-persistencia").innerHTML = r.persistente ? "" :
-      `<div class="aviso">⚠ Armazenamento temporário: documentos enviados por aqui somem quando o servidor é atualizado. Para guardar de forma permanente, configure um Volume na Railway (variável DATA_DIR).</div>`;
+      `<div class="aviso">Armazenamento temporário: documentos enviados por aqui somem quando o servidor é atualizado. Configure um Volume na Railway (variável DATA_DIR) para guardar de forma permanente.</div>`;
     lista.innerHTML = r.documentos.length ? r.documentos.map(d => `
       <li><div><b>${esc(d.titulo)}</b><small>${d.origem === "sistema" ? "base do sistema" : `enviado em ${new Date(d.criadoEm).toLocaleDateString("pt-BR")}`} · ${d.trechos} trecho(s)</small></div>
         ${d.origem === "envio" ? `<button type="button" data-id="${esc(d.id)}">remover</button>` : ""}</li>`).join("")
@@ -439,7 +440,7 @@ async function carregarDocs() {
         carregarDocs();
       } catch (e) { alert(e.message); }
     }));
-  } catch (e) { lista.innerHTML = `<li>${erroHtml(e)}</li>`; }
+  } catch (e) { lista.innerHTML = `<li class="erro">${esc(e.message)}</li>`; }
 }
 
 const lerBase64 = (arquivo) => new Promise((ok, falha) => {
@@ -448,6 +449,7 @@ const lerBase64 = (arquivo) => new Promise((ok, falha) => {
   fr.onerror = () => falha(new Error("Não foi possível ler o arquivo."));
   fr.readAsDataURL(arquivo);
 });
+const rotuloArquivo = "Escolher arquivo (PDF, TXT, MD, CSV)";
 
 $("#form-doc").addEventListener("submit", async (e) => {
   e.preventDefault();
@@ -464,33 +466,32 @@ $("#form-doc").addEventListener("submit", async (e) => {
     const r = await api("/conhecimento", { method: "POST", headers: { "Content-Type": "application/json", "x-admin-senha": f.senha.value }, body: JSON.stringify(body) });
     status.textContent = `✓ "${r.titulo}" adicionado (${r.trechos} trecho(s)).`;
     f.titulo.value = ""; f.texto.value = ""; f.arquivo.value = "";
-    $(".arquivo span", f).textContent = "📎 ou escolha um arquivo (PDF, TXT, MD, CSV)";
+    $(".arquivo span", f).textContent = rotuloArquivo;
     carregarDocs();
   } catch (err) {
     status.textContent = `⚠ ${err.message}`;
   } finally { btn.disabled = false; }
 });
 $("#form-doc").arquivo.addEventListener("change", (e) => {
-  const a = e.target.files[0];
-  $(".arquivo span").textContent = a ? `📎 ${a.name}` : "📎 ou escolha um arquivo (PDF, TXT, MD, CSV)";
+  $(".arquivo span").textContent = e.target.files[0]?.name || rotuloArquivo;
 });
 
 /* ---------- início ---------- */
 (async function iniciar() {
   const [painel, mapa] = await Promise.allSettled([api("/painel"), fetch("brasil-mapa.json").then(r => r.json())]);
   if (mapa.status === "fulfilled") MAPA = mapa.value;
-  const st = $("#status");
-  if (painel.status === "fulfilled") {
-    INFO = painel.value;
-    st.innerHTML = `<i class="dot"></i> ${INFO.assessorAtivo ? `IA online · ${esc(INFO.modeloIA || (INFO.provedorIA === "claude" ? "Claude" : "OpenAI"))}` : "IA offline — configure a chave da OpenAI"}`;
-    if (INFO.assessorAtivo) st.classList.add("ok");
-  } else {
-    st.innerHTML = `<i class="dot"></i> ${esc(painel.reason.message)}`;
-  }
-  montarSeletores();
+  if (painel.status === "fulfilled") INFO = painel.value;
+  montarSeletor();
   definirFoco(foco);
-  historico.forEach(m => m.role === "user" ? addUsuario(m.content, m.foco) : addAssistente(m));
-  atualizarModo();
-  if (historico.length) rolarFim();
-  retomarPendente();
+  if (painel.status === "fulfilled" && !INFO.assessorAtivo) {
+    $("#dica-foco").textContent = "IA offline: configure a chave da OpenAI no servidor";
+  }
+  desenharCerebro($("#cerebro-mini"), { detalhado: false });
+  // análises que ficaram sem tarefa (página fechada antes de iniciar) viram erro com opção de repetir
+  analises.filter(a => !a.tarefa && !a.resultado && !a.erro).forEach(a => { a.erro = "A análise foi interrompida."; });
+  if (atual >= analises.length || atual < 0) atual = analises.length - 1;
+  renderAnalise();
+  // retoma uma análise que estava em andamento quando a página recarregou
+  const pendente = analises.find(a => a.tarefa && !a.resultado && !a.erro);
+  if (pendente) executar(pendente, pendente.tarefa);
 })();

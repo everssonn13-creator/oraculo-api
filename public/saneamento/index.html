@@ -3,88 +3,78 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+  <meta name="theme-color" content="#f5f8fc">
   <title>Oráculo do Saneamento</title>
   <link rel="preconnect" href="https://fonts.googleapis.com">
-  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400&display=swap" rel="stylesheet">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="style.css">
   <script src="https://cdnjs.cloudflare.com/ajax/libs/marked/12.0.2/marked.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/dompurify/3.1.6/purify.min.js"></script>
 </head>
-<body>
-  <div class="grid-bg" aria-hidden="true"></div>
+<body class="inicio">
 
+  <!-- Barra superior (aparece durante a sessão) -->
   <header class="topo">
-    <div class="marca">
-      <span class="logo-orb" aria-hidden="true"></span>
-      <div>
-        <h1>ORÁCULO <span>DO SANEAMENTO</span></h1>
-        <small id="status"><i class="dot"></i> conectando…</small>
-      </div>
-    </div>
-    <div class="acoes-topo">
-      <button class="btn-icone" id="btn-nova" title="Nova conversa">＋ <span>Nova conversa</span></button>
-      <button class="btn-icone" id="btn-base" title="Base de conhecimento">📚 <span>Base de conhecimento</span></button>
+    <button class="marca" id="btn-inicio" title="Voltar ao início">
+      <span class="cerebro mini" id="cerebro-mini" aria-hidden="true"></span>
+      <span class="nome">Oráculo do Saneamento</span>
+    </button>
+    <div class="acoes">
+      <button class="icone" id="btn-base" title="Base de conhecimento" aria-label="Base de conhecimento">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20"/><path d="M6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5v-15A2.5 2.5 0 0 1 6.5 2z"/></svg>
+      </button>
+      <button class="icone" id="btn-nova" title="Nova análise" aria-label="Nova análise">
+        <svg viewBox="0 0 24 24" width="20" height="20" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M12 5v14M5 12h14"/></svg>
+      </button>
     </div>
   </header>
 
-  <main class="arena" id="arena">
-    <section class="boas-vindas" id="boas-vindas">
-      <div class="bv-mapa card-vidro">
-        <div class="mapa" id="mapa-inicio"></div>
-        <div class="chips-regiao" id="chips-regiao"></div>
-        <p class="dica">Toque num estado ou numa região para definir o foco da análise.<br><span class="nota">Mapa: <a href="https://github.com/VictorCazanave/svg-maps" target="_blank" rel="noopener">svg-maps/brazil</a> (CC BY 4.0)</span></p>
-      </div>
-      <div class="bv-texto">
-        <div class="ai-orb grande"><span></span></div>
-        <h2>Seu assessor de mercado do saneamento</h2>
-        <p>Pergunte sobre <b>ETE/ETA</b>, <b>centrífugas e lodo</b>, <b>licitações</b>, <b>concessões</b>, <b>regulação</b> ou <b>geologia</b>.
-          As análises aparecem aqui com mapa, indicadores, gráficos e tabelas — usando a sua base de conhecimento e fontes públicas oficiais.</p>
-        <div class="sugestoes" id="sugestoes">
-          <button data-estudo="1">Estudo de mercado de centrífugas para lodo na região selecionada</button>
-          <button>Quais licitações de saneamento estão abertas no estado selecionado?</button>
-          <button>Compare a população dos estados do Nordeste e onde há mais oportunidades</button>
-          <button>Resumo dos leilões de saneamento desde o Marco Legal</button>
-          <button>Geologia para implantar uma ETE em Sete Lagoas/MG</button>
-        </div>
-      </div>
-    </section>
-
-    <section class="conversa" id="conversa" aria-live="polite"></section>
-  </main>
-
-  <form class="compositor" id="form-chat">
-    <div class="compositor-linha">
-      <label class="foco" title="Foco geográfico">
-        <span aria-hidden="true">📍</span>
-        <select id="sel-foco" aria-label="Foco geográfico"></select>
-      </label>
-      <label class="alternar" title="Estudo completo: mais fontes e relatório estruturado">
-        <input type="checkbox" id="modo-estudo">
-        <span class="trilho"><span></span></span>
-        <span class="rotulo">Estudo completo</span>
-      </label>
+  <!-- Início: só o símbolo da IA -->
+  <section class="tela-inicio" id="tela-inicio">
+    <div class="palco-cerebro">
+      <div class="cerebro grande" id="cerebro-grande" aria-label="Símbolo da IA: mapa do Brasil em rede neural"></div>
+      <div class="sombra" aria-hidden="true"></div>
     </div>
-    <div class="compositor-entrada">
-      <textarea id="entrada" rows="1" placeholder="Pergunte ao Oráculo…" required></textarea>
-      <button class="enviar" aria-label="Enviar">➤</button>
+    <p class="dica-mapa" id="dica-foco">Toque num estado para focar a análise</p>
+    <h1>Como posso ajudar na sua análise?</h1>
+    <div class="cards-inicio" id="cards-inicio">
+      <button data-p="Panorama do mercado de saneamento na região selecionada">Panorama do mercado</button>
+      <button data-p="Demanda de centrífugas para desaguamento de lodo na região selecionada">Centrífugas e lodo</button>
+      <button data-p="Licitações de saneamento abertas na região selecionada">Licitações abertas</button>
+      <button data-p="Concessões e principais empresas do saneamento na região selecionada">Concessões e players</button>
     </div>
+  </section>
+
+  <!-- Sessão: análises trazidas pela IA -->
+  <section class="tela-sessao" id="tela-sessao">
+    <nav class="trilha" id="trilha" aria-label="Análises desta sessão"></nav>
+    <article class="analise" id="analise"></article>
+  </section>
+
+  <!-- Entrada -->
+  <form class="entrada" id="form">
+    <label class="foco" title="Foco geográfico">
+      <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
+      <select id="sel-foco" aria-label="Foco geográfico"></select>
+    </label>
+    <input id="pergunta" autocomplete="off" placeholder="Pergunte sobre o mercado de saneamento…" aria-label="Pergunta">
+    <button class="enviar" aria-label="Enviar">
+      <svg viewBox="0 0 24 24" width="18" height="18" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12h14M13 6l6 6-6 6"/></svg>
+    </button>
   </form>
 
   <!-- Base de conhecimento -->
   <aside class="gaveta" id="gaveta" aria-hidden="true">
     <div class="gaveta-cab">
       <h2>Base de conhecimento</h2>
-      <button class="btn-icone" id="fechar-gaveta" aria-label="Fechar">✕</button>
+      <button class="icone" id="fechar-gaveta" aria-label="Fechar">✕</button>
     </div>
-    <p class="nota">Tudo o que for adicionado aqui passa a ser consultado pela IA antes de cada resposta.</p>
+    <p class="nota">Documentos adicionados aqui são consultados pela IA antes de cada análise.</p>
     <div id="aviso-persistencia"></div>
     <form id="form-doc" class="form-doc">
-      <input name="titulo" placeholder="Título (ex.: SINISA 2024 — dados do Nordeste)">
-      <textarea name="texto" rows="5" placeholder="Cole aqui um texto, tabela ou anotação…"></textarea>
-      <label class="arquivo">
-        <input type="file" name="arquivo" accept=".pdf,.txt,.md,.csv,.json">
-        <span>📎 ou escolha um arquivo (PDF, TXT, MD, CSV)</span>
-      </label>
+      <input name="titulo" placeholder="Título (ex.: SINISA 2024 — Nordeste)">
+      <textarea name="texto" rows="5" placeholder="Cole um texto, tabela ou anotação…"></textarea>
+      <label class="arquivo"><input type="file" name="arquivo" accept=".pdf,.txt,.md,.csv,.json"><span>Escolher arquivo (PDF, TXT, MD, CSV)</span></label>
       <input name="senha" type="password" placeholder="Senha de administrador" id="campo-senha" hidden>
       <button class="btn">Adicionar à base</button>
       <div id="doc-status" class="nota"></div>

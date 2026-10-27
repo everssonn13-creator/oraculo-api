@@ -41,6 +41,8 @@ COMO TRABALHAR:
 3. Sempre que a pergunta pedir análise, estudo, comparação, números ou uma região/estado, chame "exibir_painel"
    UMA vez no final, com mapa (UFs da região analisada), indicadores-chave, gráficos e tabela — apenas com dados obtidos das ferramentas
    ou da base. Para conversas simples, não precisa de painel.
+4. No final de TODA resposta, chame "sugerir_proximas_analises" com 3 ou 4 próximas análises curtas (até 8 palavras cada),
+   específicas para o que acabou de ser mostrado e para o foco geográfico (ex.: "Licitações abertas de centrífugas em Goiás").
 
 REGRAS DE VERACIDADE (inegociáveis):
 - Nunca invente números, órgãos, valores de edital, vencedores ou dados por estado. Sem dado, diga "não encontrei" e sugira onde obter.
@@ -48,8 +50,9 @@ REGRAS DE VERACIDADE (inegociáveis):
 - Itens da base curada com confianca "media" são "a confirmar".
 - Cite fontes com link em markdown.
 
-ESTILO: português do Brasil, consultivo e objetivo. O painel visual mostra os números; o texto interpreta:
-o que significa, oportunidades, riscos e próximos passos. Use títulos curtos e listas; evite repetir no texto toda a tabela do painel.
+ESTILO: português do Brasil, consultivo e objetivo. O painel visual mostra os números; o texto interpreta.
+${modo === "estudo" ? "" : `Seja enxuto: até ~200 palavras, em 3 a 6 tópicos curtos (o que os dados mostram, oportunidade, risco, recomendação).
+Não repita no texto a tabela do painel. Não liste próximos passos no texto — eles vão em "sugerir_proximas_analises".`}
 ${modo === "estudo" ? `
 MODO ESTUDO DE MERCADO COMPLETO: consulte várias fontes (base própria, indicadores, concessões, licitações, notícias, diários,
 dados do estado/município e estimativa de lodo quando fizer sentido). Estruture o texto em:
@@ -136,6 +139,15 @@ const TOOLS = [
         custoDestinacaoPorT: { type: "number", description: "R$/t de transporte + destinação (padrão 150)" }
       },
       required: ["populacao"]
+    }
+  },
+  {
+    name: "sugerir_proximas_analises",
+    description: "Sugere de 3 a 4 próximas análises que o usuário pode pedir, mostradas como botões na tela.",
+    parameters: {
+      type: "object",
+      properties: { opcoes: { type: "array", items: { type: "string" }, description: "Frases curtas, até 8 palavras" } },
+      required: ["opcoes"]
     }
   },
   {
@@ -227,6 +239,10 @@ async function executarFerramenta(nome, args, ctx) {
     case "analise_geologica": return geologiaNoPonto(args.lat, args.lon);
     case "base_conhecimento": return TOPICOS[args.topico]?.() ?? { erro: "Tópico inexistente" };
     case "estimar_mercado_lodo": return estimarMercadoLodo(args);
+    case "sugerir_proximas_analises": {
+      ctx.proximas = (args.opcoes || []).map(o => String(o).trim().slice(0, 90)).filter(Boolean).slice(0, 4);
+      return { ok: true };
+    }
     case "exibir_painel": {
       ctx.paineisModelo.push(sanitizarPainel(args, ctx.focoUfs));
       return { ok: true, mensagem: "Painel exibido na tela. Agora escreva a análise em texto." };
@@ -246,7 +262,8 @@ const ETAPAS = {
   analise_geologica: "Fazendo a triagem geológica",
   base_conhecimento: "Consultando a base curada",
   estimar_mercado_lodo: "Estimando o mercado de lodo e centrífugas",
-  exibir_painel: "Montando o painel visual"
+  exibir_painel: "Montando o painel visual",
+  sugerir_proximas_analises: "Preparando sugestões de próximas análises"
 };
 
 async function rodarFerramenta(nome, args, ctx) {
@@ -369,6 +386,16 @@ async function consultarOpenAI(historico, system, modo, ctx) {
   return final.content || "Não consegui consolidar a análise.";
 }
 
+// Sugestões de reserva, caso o modelo não chame sugerir_proximas_analises
+function proximasPadrao(foco) {
+  const onde = rotuloFoco(foco);
+  return [
+    `Licitações abertas de saneamento em ${onde}`,
+    `Demanda de centrífugas para lodo em ${onde}`,
+    `Concessões e players atuantes em ${onde}`
+  ];
+}
+
 /**
  * historico: [{ role: "user" | "assistant", content: string }]
  * modo: "chat" | "estudo"
@@ -400,6 +427,7 @@ export async function consultarAssessor({ historico = [], modo = "chat", foco = 
   return {
     resposta,
     visuais,
+    proximas: ctx.proximas?.length ? ctx.proximas : proximasPadrao(foco),
     baseUsada: trechos.map(t => t.documento).filter((d, i, a) => a.indexOf(d) === i),
     ferramentas: ctx.fontes,
     modelo: modeloPadrao()
